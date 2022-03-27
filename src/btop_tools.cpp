@@ -51,26 +51,8 @@ namespace Term {
 	atomic<int> width = 0;
 	atomic<int> height = 0;
 	string current_tty;
-
-	namespace {
-		//struct termios initial_settings;
-
-		//* Toggle terminal input echo
-		bool echo(bool on=true) {
-			HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-			DWORD mode = 0;
-			GetConsoleMode(hStdin, &mode);
-			return SetConsoleMode(hStdin, mode & (on ? ENABLE_ECHO_INPUT : ~ENABLE_ECHO_INPUT));
-		}
-
-		//* Toggle need for return key when reading input
-		bool linebuffered(bool on=true) {
-			HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-			DWORD mode = 0;
-			GetConsoleMode(hStdin, &mode);
-			return SetConsoleMode(hStdin, mode & (on ? ENABLE_LINE_INPUT : ~ENABLE_LINE_INPUT));
-		}
-	}
+	DWORD out_saved_mode;
+	DWORD in_saved_mode;
 
 	bool refresh(bool only_check) {
 		CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -106,17 +88,23 @@ namespace Term {
 
 	bool init() {
 		if (not initialized) {
-			initialized = true;
+			HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
+			HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
+			initialized = GetConsoleMode(handleOut, &out_saved_mode) && GetConsoleMode(handleIn, &in_saved_mode);
+
 			if (initialized) {
-				//tcgetattr(STDIN_FILENO, &initial_settings);
-				current_tty = "unknown";
-				HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
-				DWORD consoleMode;
-				GetConsoleMode(handleOut, &consoleMode);
-				consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-				consoleMode |= DISABLE_NEWLINE_AUTO_RETURN;
-				SetConsoleMode(handleOut, consoleMode);
+				
+				DWORD out_consoleMode = out_saved_mode;
+				out_consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+				out_consoleMode |= DISABLE_NEWLINE_AUTO_RETURN;
+				SetConsoleMode(handleOut, out_consoleMode);
 				SetConsoleOutputCP(65001);
+
+				DWORD in_consoleMode = in_saved_mode;
+				in_consoleMode |= ~ENABLE_ECHO_INPUT;
+				in_consoleMode |= ~ENABLE_LINE_INPUT;
+				in_consoleMode |= ENABLE_MOUSE_INPUT;
+				SetConsoleMode(handleIn, in_consoleMode);
 
 				//? Disable stream sync
 				cin.sync_with_stdio(false);
@@ -125,11 +113,9 @@ namespace Term {
 				//? Disable stream ties
 				cin.tie(NULL);
 				cout.tie(NULL);
-				echo(false);
-				linebuffered(false);
 				refresh();
 
-				cout << alt_screen << hide_cursor << mouse_on << flush;
+				cout << alt_screen << hide_cursor << flush;
 				Global::resized = false;
 			}
 		}
@@ -138,8 +124,12 @@ namespace Term {
 
 	void restore() {
 		if (initialized) {
-			//tcsetattr(STDIN_FILENO, TCSANOW, &initial_settings);
-			cout << mouse_off << clear << Fx::reset << normal_screen << show_cursor << flush;
+			HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
+			HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
+			SetConsoleMode(handleOut, out_saved_mode);
+			SetConsoleMode(handleIn, in_saved_mode);
+			
+			cout << clear << Fx::reset << normal_screen << show_cursor << flush;
 			initialized = false;
 		}
 	}

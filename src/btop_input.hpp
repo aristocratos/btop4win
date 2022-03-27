@@ -56,12 +56,6 @@ namespace Input {
 	//* Get a key or mouse action from input
 	string get();
 
-	//* Wait until input is available and return key
-	string wait();
-
-	//* Clears last entered key
-	void clear();
-
 	//* Process actions for input <key>
 	void process(const string& key);
 

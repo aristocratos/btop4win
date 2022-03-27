@@ -107,10 +107,10 @@ namespace Term {
 	const string clear = Fx::e + "2J" + Fx::e + "0;0f";
 	const string clear_end = Fx::e + "0J";
 	const string clear_begin = Fx::e + "1J";
-	const string mouse_on = Fx::e + "?1002h" + Fx::e + "?1015h" + Fx::e + "?1006h"; //? Enable reporting of mouse position on click and release
-	const string mouse_off = Fx::e + "?1002l" + Fx::e + "?1015l" + Fx::e + "?1006l";
-	const string mouse_direct_on = Fx::e + "?1003h"; //? Enable reporting of mouse position at any movement
-	const string mouse_direct_off = Fx::e + "?1003l";
+	//const string mouse_on = Fx::e + "?1002h" + Fx::e + "?1015h" + Fx::e + "?1006h"; //? Enable reporting of mouse position on click and release
+	//const string mouse_off = Fx::e + "?1002l" + Fx::e + "?1015l" + Fx::e + "?1006l";
+	//const string mouse_direct_on = Fx::e + "?1003h"; //? Enable reporting of mouse position at any movement
+	//const string mouse_direct_off = Fx::e + "?1003l";
 	const string sync_start = Fx::e + "?2026h"; //? Start of terminal synchronized output
 	const string sync_end = Fx::e + "?2026l"; //? End of terminal synchronized output
 

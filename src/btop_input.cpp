@@ -22,6 +22,11 @@ tab-size = 4
 #include <thread>
 #include <mutex>
 
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <windows.h>
+
 #include <btop_input.hpp>
 #include <btop_tools.hpp>
 #include <btop_config.hpp>
@@ -37,40 +42,34 @@ namespace rng = std::ranges;
 namespace Input {
 
 	//* Map for translating key codes to readable values
-	const unordered_flat_map<string, string> Key_escapes = {
-		{"\033",	"escape"},
-		{"\n",		"enter"},
-		{" ",		"space"},
-		{"\x7f",	"backspace"},
-		{"\x08",	"backspace"},
-		{"[A", 		"up"},
-		{"OA",		"up"},
-		{"[B", 		"down"},
-		{"OB",		"down"},
-		{"[D", 		"left"},
-		{"OD",		"left"},
-		{"[C", 		"right"},
-		{"OC",		"right"},
-		{"[2~",		"insert"},
-		{"[3~",		"delete"},
-		{"[H",		"home"},
-		{"[F",		"end"},
-		{"[5~",		"page_up"},
-		{"[6~",		"page_down"},
-		{"\t",		"tab"},
-		{"[Z",		"shift_tab"},
-		{"OP",		"f1"},
-		{"OQ",		"f2"},
-		{"OR",		"f3"},
-		{"OS",		"f4"},
-		{"[15~",	"f5"},
-		{"[17~",	"f6"},
-		{"[18~",	"f7"},
-		{"[19~",	"f8"},
-		{"[20~",	"f9"},
-		{"[21~",	"f10"},
-		{"[23~",	"f11"},
-		{"[24~",	"f12"}
+	const unordered_flat_map<char, string> Key_escapes = {
+		{VK_ESCAPE,	"escape"},
+		{VK_RETURN,	"enter"},
+		{VK_SPACE,	"space"},
+		{VK_BACK,	"backspace"},
+		{VK_UP,		"up"},
+		{VK_DOWN,	"down"},
+		{VK_LEFT,	"left"},
+		{VK_RIGHT,	"right"},
+		{VK_INSERT,	"insert"},
+		{VK_DELETE,	"delete"},
+		{VK_HOME,	"home"},
+		{VK_END,	"end"},
+		{VK_PRIOR,	"page_up"},
+		{VK_NEXT,	"page_down"},
+		{VK_TAB,	"tab"},
+		{VK_F1,		"f1"},
+		{VK_F2,		"f2"},
+		{VK_F3,		"f3"},
+		{VK_F4,		"f4"},
+		{VK_F5,		"f5"},
+		{VK_F6,		"f6"},
+		{VK_F7,		"f7"},
+		{VK_F8,		"f8"},
+		{VK_F9,		"f9"},
+		{VK_F10,	"f10"},
+		{VK_F11,	"f11"},
+		{VK_F12,	"f12"}
 	};
 
 	std::atomic<bool> interrupt (false);
@@ -81,67 +80,70 @@ namespace Input {
 	deque<string> history(50, "");
 	string old_filter;
 
-	struct InputThr {
-		InputThr() : thr(run, this) {
-		}
+	//struct InputThr {
+	//	InputThr() : thr(run, this) {
+	//	}
 
-		static void run(InputThr* that) {
-			that->runImpl();
-		}
+	//	static void run(InputThr* that) {
+	//		that->runImpl();
+	//	}
 
-		void runImpl() {
-			char ch = 0;
+	//	void runImpl() {
+	//		char ch = 0;
 
-			// TODO(pg83): read whole buffer
-			while (cin.get(ch)) {
-				std::lock_guard<std::mutex> g(lock);
-				current.push_back(ch);
-				if (current.size() > 100) {
-					current.clear();
-				}
-			}
-		}
+	//		// TODO(pg83): read whole buffer
+	//		while (cin.get(ch)) {
+	//			std::lock_guard<std::mutex> g(lock);
+	//			current.push_back(ch);
+	//			if (current.size() > 100) {
+	//				current.clear();
+	//			}
+	//		}
+	//	}
 
-		size_t avail() {
-			std::lock_guard<std::mutex> g(lock);
+	//	size_t avail() {
+	//		std::lock_guard<std::mutex> g(lock);
 
-			return current.size();
-		}
+	//		return current.size();
+	//	}
 
-		std::string get() {
-			std::string res;
+	//	std::string get() {
+	//		std::string res;
 
-			{
-				std::lock_guard<std::mutex> g(lock);
+	//		{
+	//			std::lock_guard<std::mutex> g(lock);
 
-				res.swap(current);
-			}
+	//			res.swap(current);
+	//		}
 
-			return res;
-		}
+	//		return res;
+	//	}
 
-		static InputThr& instance() {
-			// intentional memory leak, to simplify shutdown process
-			static InputThr* input = new InputThr();
+	//	static InputThr& instance() {
+	//		// intentional memory leak, to simplify shutdown process
+	//		static InputThr* input = new InputThr();
 
-			return *input;
-		}
+	//		return *input;
+	//	}
 
-		std::string current;
-		// TODO(pg83): use std::conditional_variable instead of sleep
-		std::mutex lock;
-		std::thread thr;
-	};
+	//	std::string current;
+	//	// TODO(pg83): use std::conditional_variable instead of sleep
+	//	std::mutex lock;
+	//	std::thread thr;
+	//};
 
 	bool poll(int timeout) {
-		atomic_lock lck(polling);
-		if (timeout < 1) return InputThr::instance().avail() > 0;
+		HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
+		DWORD waiting;
+		
 		while (timeout > 0) {
 			if (interrupt) {
 				interrupt = false;
 				return false;
 			}
-			if (InputThr::instance().avail() > 0) return true;
+			if (not GetNumberOfConsoleInputEvents(handleIn, &waiting))
+				throw std::runtime_error("Failed getting number of input events!");
+			if (waiting > 0) return true;
 			sleep_ms(timeout < 10 ? timeout : 10);
 			timeout -= 10;
 		}
@@ -149,49 +151,52 @@ namespace Input {
 	}
 
 	string get() {
-		string key = InputThr::instance().get();
-		if (not key.empty()) {
-			//? Remove escape code prefix if present
-			if (key.substr(0, 2) == Fx::e) {
-				key.erase(0, 1);
-			}
-			//? Detect if input is an mouse event
-			if (key.starts_with("[<")) {
-				std::string_view key_view = key;
-				string mouse_event;
-				if (key_view.starts_with("[<0;") and key_view.find('M') != std::string_view::npos) {
-					mouse_event = "mouse_click";
-					key_view.remove_prefix(4);
-				}
-				// else if (key_view.starts_with("[<0;") and key_view.ends_with('m')) {
-				// 	mouse_event = "mouse_release";
-				// 	key_view.remove_prefix(4);
-				// }
-				else if (key_view.starts_with("[<64;")) {
-					mouse_event = "mouse_scroll_up";
-					key_view.remove_prefix(5);
-				}
-				else if (key_view.starts_with("[<65;")) {
-					mouse_event = "mouse_scroll_down";
-					key_view.remove_prefix(5);
-				}
-				else
-					key.clear();
+		HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
+		DWORD cNumRead;
+		INPUT_RECORD iRec;
+		string key;
 
+		if (not ReadConsoleInput(handleIn, &iRec, 1, &cNumRead))
+			throw std::runtime_error("Failed reading input!");
+
+		if (cNumRead > 0) {
+			
+			if (iRec.EventType == KEY_EVENT) {
+				if (Key_escapes.contains(iRec.Event.KeyEvent.wVirtualKeyCode)) {
+					key = Key_escapes.at(iRec.Event.KeyEvent.wVirtualKeyCode);
+
+					if (key == "tab" and iRec.Event.KeyEvent.dwControlKeyState == SHIFT_PRESSED)
+						key = "shift_tab";
+				}
+				else if (iRec.Event.KeyEvent.bKeyDown) {
+					key = iRec.Event.KeyEvent.uChar.UnicodeChar;
+					
+					history.push_back(key);
+					history.pop_front();
+				}
+			}
+			else if (iRec.EventType == MOUSE_EVENT) {
+				
+				string mouse_event;
+				if (iRec.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED) {
+					mouse_event = "mouse_click";
+				}
+				else if (iRec.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED && iRec.Event.MouseEvent.dwButtonState > 0) {
+					mouse_event = "mouse_scroll_up";
+				}
+				else if (iRec.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED && iRec.Event.MouseEvent.dwButtonState <= 0) {
+					mouse_event = "mouse_scroll_down";
+				}
+				
 				if (Config::getB("proc_filtering")) {
 					if (mouse_event == "mouse_click") return mouse_event;
 					else return "";
 				}
 
 				//? Get column and line position of mouse and check for any actions mapped to current position
-				if (not key.empty()) {
-					try {
-						const auto delim = key_view.find(';');
-						mouse_pos[0] = stoi((string)key_view.substr(0, delim));
-						mouse_pos[1] = stoi((string)key_view.substr(delim + 1, key_view.find('M', delim)));
-					}
-					catch (const std::invalid_argument&) { mouse_event.clear(); }
-					catch (const std::out_of_range&) { mouse_event.clear(); }
+				if (not mouse_event.empty()) {
+					mouse_pos[0] = iRec.Event.MouseEvent.dwMousePosition.X;
+					mouse_pos[1] = iRec.Event.MouseEvent.dwMousePosition.Y;
 
 					key = mouse_event;
 
@@ -208,28 +213,8 @@ namespace Input {
 				}
 
 			}
-			else if (Key_escapes.contains(key))
-				key = Key_escapes.at(key);
-			else if (ulen(key) > 1)
-				key.clear();
-
-			if (not key.empty()) {
-				history.push_back(key);
-				history.pop_front();
-			}
 		}
 		return key;
-	}
-
-	string wait() {
-		while (InputThr::instance().avail() < 1) {
-			sleep_ms(10);
-		}
-		return get();
-	}
-
-	void clear() {
-		// do not need it, actually
 	}
 
 	void process(const string& key) {
@@ -249,11 +234,11 @@ namespace Input {
 					Menu::show(Menu::Menus::Main);
 					return;
 				}
-				else if (is_in(key, "F1", help_key)) {
+				else if (is_in(key, "f1", help_key)) {
 					Menu::show(Menu::Menus::Help);
 					return;
 				}
-				else if (is_in(key, "F2", "o")) {
+				else if (is_in(key, "f2", "o")) {
 					Menu::show(Menu::Menus::Options);
 					return;
 				}

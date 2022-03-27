@@ -227,7 +227,6 @@ void clean_quit(int sig) {
 	Config::write();
 
 	if (Term::initialized) {
-		Input::clear();
 		Term::restore();
 	}
 
