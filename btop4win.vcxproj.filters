@@ -87,4 +87,11 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
+    <None Include=".gitignore" />
+    <None Include="Makefile" />
+    <None Include="CHANGELOG.md" />
+    <None Include="CODE_OF_CONDUCT.md" />
+  </ItemGroup>
 </Project>

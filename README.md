@@ -1,21 +1,14 @@
 # ![btop++](Img/logo.png)
 
-<a href="https://repology.org/project/btop/versions">
-    <img src="https://repology.org/badge/vertical-allrepos/btop.svg" alt="Packaging status" align="right">
-</a>
-
-![Linux](https://img.shields.io/badge/-Linux-grey?logo=linux)
-![OSX](https://img.shields.io/badge/-OSX-black?logo=apple)
-![FreeBSD](https://img.shields.io/badge/-FreeBSD-red?logo=freebsd)
+![Windows](https://img.shields.io/badge/-Windows-red?logo=windows)
 ![Usage](https://img.shields.io/badge/Usage-System%20resource%20monitor-yellow)
 ![c++20](https://img.shields.io/badge/cpp-c%2B%2B20-green)
-![latest_release](https://img.shields.io/github/v/tag/aristocratos/btop?label=release)
+![latest_release](https://img.shields.io/github/v/tag/aristocratos/btop4win?label=release)
 [![Donate](https://img.shields.io/badge/-Donate-yellow?logo=paypal)](https://paypal.me/aristocratos)
 [![Sponsor](https://img.shields.io/badge/-Sponsor-red?logo=github)](https://github.com/sponsors/aristocratos)
 [![Coffee](https://img.shields.io/badge/-Buy%20me%20a%20Coffee-grey?logo=Ko-fi)](https://ko-fi.com/aristocratos)
-[![btop](https://snapcraft.io/btop/badge.svg)](https://snapcraft.io/btop)
-[![Continuous Build Linux](https://github.com/aristocratos/btop/actions/workflows/continuous-build-linux.yml/badge.svg)](https://github.com/aristocratos/btop/actions/workflows/continuous-build-linux.yml)
-[![Continuous Build MacOS](https://github.com/aristocratos/btop/actions/workflows/continuous-build-macos.yml/badge.svg)](https://github.com/aristocratos/btop/actions/workflows/continuous-build-macos.yml)
+
+
 
 ## Index
 
@@ -38,81 +31,14 @@
 
 ## News
 
-##### 16 January 2022
+##### 27 Mars 2022
 
-Release v1.2.0 with FreeBSD support. No release binaries for FreeBSD provided as of yet.
-
-Again a big thanks to [@joske](https://github.com/joske) for his porting efforts!
-
-Since compatibility with Linux, MacOS and FreeBSD are done, the focus going forward will be on new features like GPU monitoring.
-
-##### 13 November 2021
-
-Release v1.1.0 with OSX support. Binaries in [continuous-build-macos](https://github.com/aristocratos/btop/actions/workflows/continuous-build-macos.yml) are only x86 for now.
-Macos binaries + installer are included for both x86 and ARM64 (Apple Silicon) in the releases.
-
-Big thank you to [@joske](https://github.com/joske) who wrote the vast majority of the implementation!
+Started working on btop4win...
 
 <details>
 <summary>More...</summary>
 
-##### 30 October 2021
-
-Work on the OSX and FreeBSD branches, both initiated and mostly worked on by [@joske](https://github.com/joske), will likely be completed in the coming weeks.
-The OSX branch has some memory leaks that needs to be sorted out and both have some issues with the processes cpu usage calculation and other smaller issues that needs fixing.
-
-If you want to help out, test for bugs/fix bugs or just try out the branches:
-
-**OSX**
-```bash
-# Install and use Homebrew or MacPorts package managers for easy dependency installation
-brew install coreutils make gcc@11
-git clone https://github.com/aristocratos/btop.git
-cd btop
-git checkout OSX
-gmake
-```
-
-**FreeBSD**
-```bash
-sudo pkg install gmake gcc11 coreutils git
-git clone https://github.com/aristocratos/btop.git
-cd btop
-git checkout freebsd
-gmake
-```
-
-Note that GNU make (`gmake`) is recommended but not required for OSX but it is required on FreeBSD.
-
-
-##### 6 October 2021
-
-OsX development have been started by [@joske](https://github.com/joske), big thanks :)
-See branch [OSX](https://github.com/aristocratos/btop/tree/OSX) for current progress.
-
-##### 18 September 2021
-
-The Linux version of btop++ is complete. Released as version 1.0.0
-
-I will be providing statically compiled binaries for a range of architectures in every release for those having problems compiling.
-
-For compilation GCC 10 is required, GCC 11 preferred.
-
-Please report any bugs to the [Issues](https://github.com/aristocratos/btop/issues/new?assignees=aristocratos&labels=bug&template=bug_report.md&title=%5BBUG%5D) page.
-
-The development plan right now:
-
-* 1.1.0 Mac OsX support
-* 1.2.0 FreeBSD support
-* 1.3.0 Support for GPU monitoring
-* 1.X.0 Other platforms and features...
-
-Windows support is not in the plans as of now, but if anyone else wants to take it on, I will try to help.
-
-##### 5 May 2021
-
-This project is gonna take some time until it has complete feature parity with bpytop, since all system information gathering will have to be written from scratch without any external libraries.
-And will need some help in the form of code contributions to get complete support for BSD and OSX.
+Nothing here...
 
 </details>
 
@@ -128,7 +54,7 @@ And will need some help in the form of code contributions to get complete suppor
 
 Resource monitor that shows usage and stats for processor, memory, disks, network and processes.
 
-C++ version and continuation of [bashtop](https://github.com/aristocratos/bashtop) and [bpytop](https://github.com/aristocratos/bpytop).
+Windows version of btop++ which is the C++ version and continuation of [bashtop](https://github.com/aristocratos/bashtop) and [bpytop](https://github.com/aristocratos/bpytop).
 
 ## Features
 
@@ -150,7 +76,7 @@ C++ version and continuation of [bashtop](https://github.com/aristocratos/bashto
 
 ## Themes
 
-Btop++ uses the same theme files as bpytop and bashtop (some color values missing in bashtop themes) .
+Btop4win++ uses the same theme files as bpytop and bashtop (some color values missing in bashtop themes) .
 
 See [themes](https://github.com/aristocratos/btop/tree/master/themes) folder for available themes.
 
@@ -224,345 +150,10 @@ Also needs a UTF8 locale and a font that covers:
 
 ## Installation
 
-**Binaries for Linux are statically compiled with musl and works on kernel 2.6.39 and newer**
 
-1. **Download btop-(VERSION)-(ARCH)-(PLATFORM).tbz from [latest release](https://github.com/aristocratos/btop/releases/latest) and unpack to a new folder**
 
-   **Notice! Use x86_64 for 64-bit x86 systems, i486 and i686 are 32-bit!**
+## Compilation
 
-2. **Install (from created folder)**
-
-   * **Run install.sh or:**
-
-   ``` bash
-   # use "make install PREFIX=/target/dir" to set target, default: /usr/local
-   # only use "sudo" when installing to a NON user owned directory
-   sudo make install
-   ```
-
-3. **(Optional) Set suid bit to make btop always run as root (or other user)**
-
-   Enables signal sending to any process without starting with `sudo` and can prevent /proc read permissions problems on some systems.
-
-   * **Run setuid.sh or:**
-
-   ``` bash
-   # run after make install and use same PREFIX if any was used at install
-   # set SU_USER and SU_GROUP to select user and group, default is root:root
-   sudo make setuid
-   ```
-
-* **Uninstall**
-
-  * **Run uninstall.sh or:**
-
-   ``` bash
-   sudo make uninstall
-   ```
-
-* **Show help**
-
-   ```bash
-   make help
-   ```
-
-**Binary release (from native os repo)**
-
-* **openSUSE**
-  * **Tumbleweed:**
-    ```bash
-    sudo zypper in btop
-    ```
-  * For all other versions, see [openSUSE Software: btop](https://software.opensuse.org/package/btop)
-
-
-**Binary release on Homebrew (macOS (x86_64 & ARM64) / Linux (x86_64))**
-
-* **[Homebrew](https://formulae.brew.sh/formula/btop)**
-  ```bash
-  brew install btop
-  ```
-
-## Compilation Linux
-
-   Needs GCC 10 or higher, (GCC 11 or above strongly recommended for better CPU efficiency in the compiled binary).
-
-   The makefile also needs GNU coreutils and `sed` (should already be installed on any modern distribution).
-
-   For a `cmake` based build alternative see the [fork](https://github.com/jan-guenter/btop/tree/main) by @jan-guenter
-
-1. **Install dependencies (example for Ubuntu 21.04 Hirsute)**
-
-   Use gcc-10 g++-10 if gcc-11 isn't available
-
-   ``` bash
-   sudo apt install coreutils sed git build-essential gcc-11 g++-11
-   ```
-
-2. **Clone repository**
-
-   ``` bash
-   git clone https://github.com/aristocratos/btop.git
-   cd btop
-   ```
-
-3. **Compile**
-
-   Append `STATIC=true` to `make` command for static compilation.
-
-   Notice! If using LDAP Authentication, usernames will show as UID number for LDAP users if compiling statically with glibc.
-
-   Append `QUIET=true` for less verbose output.
-
-   Append `STRIP=true` to force stripping of debug symbols (adds `-s` linker flag).
-
-   Append `ARCH=<architecture>` to manually set the target architecture.
-   If omitted the makefile uses the machine triple (output of `-dumpmachine` compiler parameter) to detect the target system.
-
-   Use `ADDFLAGS` variable for appending flags to both compiler and linker.
-
-   For example: `ADDFLAGS=-march=native` might give a performance boost if compiling only for your own system.
-
-   If `g++` is linked to an older version of gcc on your system specify the correct version by appending `CXX=g++-10` or `CXX=g++-11`.
-
-   ``` bash
-   make
-   ```
-
-4. **Install**
-
-   Append `PREFIX=/target/dir` to set target, default: `/usr/local`
-
-   Notice! Only use "sudo" when installing to a NON user owned directory.
-
-   ``` bash
-   sudo make install
-   ```
-
-5. **(Optional) Set suid bit to make btop always run as root (or other user)**
-
-   No need for `sudo` to enable signal sending to any process and to prevent /proc read permissions problems on some systems.
-
-   Run after make install and use same PREFIX if any was used at install.
-
-   Set `SU_USER` and `SU_GROUP` to select user and group, default is `root` and `root`
-
-   ``` bash
-   sudo make setuid
-   ```
-
-* **Uninstall**
-
-   ``` bash
-   sudo make uninstall
-   ```
-
-* **Remove any object files from source dir**
-
-   ```bash
-   make clean
-   ```
-
-* **Remove all object files, binaries and created directories in source dir**
-
-   ```bash
-   make distclean
-   ```
-
-* **Show help**
-
-   ```bash
-   make help
-   ```
-
-## Compilation OSX
-
-   Needs GCC 10 or higher, (GCC 11 or above strongly recommended for better CPU efficiency in the compiled binary).
-
-   The makefile also needs GNU coreutils and `sed`.
-
-   Install and use Homebrew or MacPorts package managers for easy dependency installation
-
-1. **Install dependencies (example for Homebrew)**
-
-   ``` bash
-   brew install coreutils make gcc@11
-   ```
-
-2. **Clone repository**
-
-   ``` bash
-   git clone https://github.com/aristocratos/btop.git
-   cd btop
-   ```
-
-3. **Compile**
-
-   Append `STATIC=true` to `make` command for static compilation (only libgcc and libstdc++ will be static!).
-
-   Append `QUIET=true` for less verbose output.
-
-   Append `STRIP=true` to force stripping of debug symbols (adds `-s` linker flag).
-
-   Append `ARCH=<architecture>` to manually set the target architecture.
-   If omitted the makefile uses the machine triple (output of `-dumpmachine` compiler parameter) to detect the target system.
-
-   Use `ADDFLAGS` variable for appending flags to both compiler and linker.
-
-   For example: `ADDFLAGS=-march=native` might give a performance boost if compiling only for your own system.
-
-   ``` bash
-   gmake
-   ```
-
-4. **Install**
-
-   Append `PREFIX=/target/dir` to set target, default: `/usr/local`
-
-   Notice! Only use "sudo" when installing to a NON user owned directory.
-
-   ``` bash
-   sudo gmake install
-   ```
-
-5. **(Recommended) Set suid bit to make btop always run as root (or other user)**
-
-   No need for `sudo` to see information for non user owned processes and to enable signal sending to any process.
-
-   Run after make install and use same PREFIX if any was used at install.
-
-   Set `SU_USER` and `SU_GROUP` to select user and group, default is `root` and `wheel`
-
-   ``` bash
-   sudo gmake setuid
-   ```
-
-* **Uninstall**
-
-   ``` bash
-   sudo gmake uninstall
-   ```
-
-* **Remove any object files from source dir**
-
-   ```bash
-   gmake clean
-   ```
-
-* **Remove all object files, binaries and created directories in source dir**
-
-   ```bash
-   gmake distclean
-   ```
-
-* **Show help**
-
-   ```bash
-   gmake help
-   ```
-
-## Compilation FreeBSD
-
-   Needs GCC 10 or higher, (GCC 11 or above strongly recommended for better CPU efficiency in the compiled binary).
-
-   Note that GNU make (`gmake`) is required to compile on FreeBSD.
-
-1. **Install dependencies**
-
-   ``` bash
-   sudo pkg install gmake gcc11 coreutils git
-   ```
-
-2. **Clone repository**
-
-   ``` bash
-   git clone https://github.com/aristocratos/btop.git
-   cd btop
-   ```
-
-3. **Compile**
-
-   Append `STATIC=true` to `make` command for static compilation.
-
-   Append `QUIET=true` for less verbose output.
-
-   Append `STRIP=true` to force stripping of debug symbols (adds `-s` linker flag).
-
-   Append `ARCH=<architecture>` to manually set the target architecture.
-   If omitted the makefile uses the machine triple (output of `-dumpmachine` compiler parameter) to detect the target system.
-
-   Use `ADDFLAGS` variable for appending flags to both compiler and linker.
-
-   For example: `ADDFLAGS=-march=native` might give a performance boost if compiling only for your own system.
-
-   ``` bash
-   gmake
-   ```
-
-4. **Install**
-
-   Append `PREFIX=/target/dir` to set target, default: `/usr/local`
-
-   Notice! Only use "sudo" when installing to a NON user owned directory.
-
-   ``` bash
-   sudo gmake install
-   ```
-
-5. **(Recommended) Set suid bit to make btop always run as root (or other user)**
-
-   No need for `sudo` to see information for non user owned processes and to enable signal sending to any process.
-
-   Run after make install and use same PREFIX if any was used at install.
-
-   Set `SU_USER` and `SU_GROUP` to select user and group, default is `root` and `wheel`
-
-   ``` bash
-   sudo gmake setuid
-   ```
-
-* **Uninstall**
-
-   ``` bash
-   sudo gmake uninstall
-   ```
-
-* **Remove any object files from source dir**
-
-   ```bash
-   gmake clean
-   ```
-
-* **Remove all object files, binaries and created directories in source dir**
-
-   ```bash
-   gmake distclean
-   ```
-
-* **Show help**
-
-   ```bash
-   gmake help
-   ```
-
-## Installing the snap
-[![btop](https://snapcraft.io/btop/badge.svg)](https://snapcraft.io/btop)
-
- * **Install the snap**
-
-    ```bash
-    sudo snap install btop
-    ```
- * **Install the latest snap from the edge channel**
-   ```
-   sudo snap install btop --edge
-   ```
-
- * **Connect the interface**
-
-    ```bash
-	sudo snap connect btop:removable-media
-	```
 
 
 ## Configurability

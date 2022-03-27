@@ -143,6 +143,13 @@
     <ClInclude Include="src\osx\sensors.hpp" />
     <ClInclude Include="src\osx\smc.hpp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
+    <None Include="CHANGELOG.md" />
+    <None Include="CODE_OF_CONDUCT.md" />
+    <None Include="Makefile" />
+    <None Include="README.md" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
