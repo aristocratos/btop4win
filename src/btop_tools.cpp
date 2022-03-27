@@ -90,20 +90,19 @@ namespace Term {
 		if (not initialized) {
 			HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
 			HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
-			initialized = GetConsoleMode(handleOut, &out_saved_mode) && GetConsoleMode(handleIn, &in_saved_mode);
+			initialized = (GetConsoleMode(handleOut, &out_saved_mode) && GetConsoleMode(handleIn, &in_saved_mode));
 
 			if (initialized) {
 				
 				DWORD out_consoleMode = out_saved_mode;
-				out_consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-				out_consoleMode |= DISABLE_NEWLINE_AUTO_RETURN;
+				out_consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
 				SetConsoleMode(handleOut, out_consoleMode);
 				SetConsoleOutputCP(65001);
 
-				DWORD in_consoleMode = in_saved_mode;
-				in_consoleMode |= ~ENABLE_ECHO_INPUT;
-				in_consoleMode |= ~ENABLE_LINE_INPUT;
-				in_consoleMode |= ENABLE_MOUSE_INPUT;
+				DWORD in_consoleMode = 0;
+				//SetConsoleMode(handleIn, in_consoleMode);
+				//in_consoleMode = ~ENABLE_ECHO_INPUT | ~ENABLE_LINE_INPUT | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
+				in_consoleMode = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_INSERT_MODE | ENABLE_EXTENDED_FLAGS;
 				SetConsoleMode(handleIn, in_consoleMode);
 
 				//? Disable stream sync

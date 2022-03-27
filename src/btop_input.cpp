@@ -161,7 +161,7 @@ namespace Input {
 
 		if (cNumRead > 0) {
 			
-			if (iRec.EventType == KEY_EVENT) {
+			if (iRec.EventType == KEY_EVENT and iRec.Event.KeyEvent.bKeyDown) {
 				if (Key_escapes.contains(iRec.Event.KeyEvent.wVirtualKeyCode)) {
 					key = Key_escapes.at(iRec.Event.KeyEvent.wVirtualKeyCode);
 
@@ -169,7 +169,12 @@ namespace Input {
 						key = "shift_tab";
 				}
 				else if (iRec.Event.KeyEvent.bKeyDown) {
-					key = iRec.Event.KeyEvent.uChar.UnicodeChar;
+					char c = iRec.Event.KeyEvent.uChar.UnicodeChar;
+
+					if (c > 32 and c < 126)
+						key = c;
+					else
+						return "";
 					
 					history.push_back(key);
 					history.pop_front();
@@ -178,15 +183,17 @@ namespace Input {
 			else if (iRec.EventType == MOUSE_EVENT) {
 				
 				string mouse_event;
-				if (iRec.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED) {
+				if (iRec.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED and iRec.Event.MouseEvent.dwEventFlags == 0) {
 					mouse_event = "mouse_click";
 				}
-				else if (iRec.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED && iRec.Event.MouseEvent.dwButtonState > 0) {
-					mouse_event = "mouse_scroll_up";
+				else if (iRec.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED) {
+					mouse_event = iRec.Event.MouseEvent.dwButtonState >> 24 == 0 ? "mouse_scroll_up" : "mouse_scroll_down";
 				}
-				else if (iRec.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED && iRec.Event.MouseEvent.dwButtonState <= 0) {
-					mouse_event = "mouse_scroll_down";
+				else {
+					return "";
 				}
+
+				//Logger::debug(mouse_event);
 				
 				if (Config::getB("proc_filtering")) {
 					if (mouse_event == "mouse_click") return mouse_event;
@@ -195,8 +202,10 @@ namespace Input {
 
 				//? Get column and line position of mouse and check for any actions mapped to current position
 				if (not mouse_event.empty()) {
-					mouse_pos[0] = iRec.Event.MouseEvent.dwMousePosition.X;
-					mouse_pos[1] = iRec.Event.MouseEvent.dwMousePosition.Y;
+					mouse_pos[0] = iRec.Event.MouseEvent.dwMousePosition.X + 1;
+					mouse_pos[1] = iRec.Event.MouseEvent.dwMousePosition.Y + 1;
+
+					//Logger::debug(to_string(mouse_pos[0]) + " | " + to_string(mouse_pos[1]));
 
 					key = mouse_event;
 
