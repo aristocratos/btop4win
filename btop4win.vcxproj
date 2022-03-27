@@ -39,11 +39,13 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -108,27 +110,23 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\btop.cpp" />
+    <ClCompile Include="src\btop_collect.cpp" />
     <ClCompile Include="src\btop_config.cpp" />
     <ClCompile Include="src\btop_draw.cpp" />
     <ClCompile Include="src\btop_input.cpp" />
     <ClCompile Include="src\btop_menu.cpp" />
     <ClCompile Include="src\btop_theme.cpp" />
     <ClCompile Include="src\btop_tools.cpp" />
-    <ClCompile Include="src\freebsd\btop_collect.cpp" />
-    <ClCompile Include="src\linux\btop_collect.cpp" />
-    <ClCompile Include="src\osx\btop_collect.cpp" />
-    <ClCompile Include="src\osx\sensors.cpp" />
-    <ClCompile Include="src\osx\smc.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\robin_hood.h" />
@@ -140,8 +138,6 @@
     <ClInclude Include="src\btop_shared.hpp" />
     <ClInclude Include="src\btop_theme.hpp" />
     <ClInclude Include="src\btop_tools.hpp" />
-    <ClInclude Include="src\osx\sensors.hpp" />
-    <ClInclude Include="src\osx\smc.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />

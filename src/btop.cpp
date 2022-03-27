@@ -16,7 +16,10 @@ indent = tab
 tab-size = 4
 */
 
+
 #include <csignal>
+#include <exception>
+#include <typeinfo>
 #include <clocale>
 #include <thread>
 #include <numeric>
@@ -27,6 +30,7 @@ tab-size = 4
 #include <tuple>
 #include <regex>
 #include <chrono>
+#include <semaphore>
 
 #include <btop_shared.hpp>
 #include <btop_tools.hpp>
@@ -63,7 +67,7 @@ namespace Global {
 	string fg_green = "\x1b[1;92m";
 	string fg_red = "\x1b[0;91m";
 
-	uid_t real_uid, set_uid;
+	//uid_t real_uid, set_uid;
 
 	fs::path self_path;
 
@@ -205,19 +209,19 @@ void clean_quit(int sig) {
 	Global::quitting = true;
 	Runner::stop();
 	if (Global::_runner_started) {
-	#ifdef __APPLE__
-		if (pthread_join(Runner::runner_id, NULL) != 0) {
-			Logger::warning("Failed to join _runner thread on exit!");
-			pthread_cancel(Runner::runner_id);
-		}
-	#else
-		struct timespec ts;
-		ts.tv_sec = 5;
-		if (pthread_timedjoin_np(Runner::runner_id, NULL, &ts) != 0) {
-			Logger::warning("Failed to join _runner thread on exit!");
-			pthread_cancel(Runner::runner_id);
-		}
-	#endif
+	//#ifdef __APPLE__
+	//	if (pthread_join(Runner::runner_id, NULL) != 0) {
+	//		Logger::warning("Failed to join _runner thread on exit!");
+	//		pthread_cancel(Runner::runner_id);
+	//	}
+	//#else
+	//	struct timespec ts;
+	//	ts.tv_sec = 5;
+	//	if (pthread_timedjoin_np(Runner::runner_id, NULL, &ts) != 0) {
+	//		Logger::warning("Failed to join _runner thread on exit!");
+	//		pthread_cancel(Runner::runner_id);
+	//	}
+	//#endif
 	}
 
 	Config::write();
@@ -236,25 +240,9 @@ void clean_quit(int sig) {
 
 	const auto excode = (sig != -1 ? sig : 0);
 
-#ifdef __APPLE__
-	_Exit(excode);
-#else
 	quick_exit(excode);
-#endif
 }
 
-//* Handler for SIGTSTP; stops threads, restores terminal and sends SIGSTOP
-void _sleep() {
-	Runner::stop();
-	Term::restore();
-	std::raise(SIGSTOP);
-}
-
-//* Handler for SIGCONT; re-initialize terminal and force a resize event
-void _resume() {
-	Term::init();
-	term_resize(true);
-}
 
 void _exit_handler() {
 	clean_quit(-1);
@@ -272,22 +260,6 @@ void _signal_handler(const int sig) {
 				clean_quit(0);
 			}
 			break;
-		case SIGTSTP:
-			if (Runner::active) {
-				Global::should_sleep = true;
-				Runner::stopping = true;
-				Input::interrupt = true;
-			}
-			else {
-				_sleep();
-			}
-			break;
-		case SIGCONT:
-			_resume();
-			break;
-		case SIGWINCH:
-			term_resize();
-			break;
 	}
 }
 
@@ -298,48 +270,15 @@ namespace Runner {
 	atomic<bool> waiting (false);
 	atomic<bool> redraw (false);
 
-	//* Setup semaphore for triggering thread to do work
-#if __GNUC__ < 11
-	#include <semaphore.h>
-	sem_t do_work;
-	inline void thread_sem_init() { sem_init(&do_work, 0, 0); }
-	inline void thread_wait() { sem_wait(&do_work); }
-	inline void thread_trigger() { sem_post(&do_work); }
-#else
-	#include <semaphore>
 	std::binary_semaphore do_work(0);
 	inline void thread_sem_init() { ; }
 	inline void thread_wait() { do_work.acquire(); }
 	inline void thread_trigger() { do_work.release(); }
-#endif
 
-	//* RAII wrapper for pthread_mutex locking
-	class thread_lock {
-		pthread_mutex_t& pt_mutex;
-	public:
-		int status;
-		thread_lock(pthread_mutex_t& mtx) : pt_mutex(mtx) { pthread_mutex_init(&pt_mutex, NULL); status = pthread_mutex_lock(&pt_mutex); }
-		~thread_lock() { if (status == 0) pthread_mutex_unlock(&pt_mutex); }
-	};
-
-	//* Wrapper for raising priviliges when using SUID bit
-	class gain_priv {
-		int status = -1;
-	public:
-		gain_priv() {
-			if (Global::real_uid != Global::set_uid) this->status = seteuid(Global::set_uid);
-		}
-		~gain_priv() {
-			if (status == 0) status = seteuid(Global::real_uid);
-		}
-	};
 
 	string output;
 	string empty_bg;
 	bool pause_output = false;
-	sigset_t mask;
-	pthread_t runner_id;
-	pthread_mutex_t mtx;
 
 	enum debug_actions {
 		collect_begin,
@@ -384,24 +323,7 @@ namespace Runner {
 	}
 
 	//? ------------------------------- Secondary thread: async launcher and drawing ----------------------------------
-	void * _runner(void * _) {
-		(void)_;
-		//? Block some signals in this thread to avoid deadlock from any signal handlers trying to stop this thread
-		sigemptyset(&mask);
-		// sigaddset(&mask, SIGINT);
-		// sigaddset(&mask, SIGTSTP);
-		sigaddset(&mask, SIGWINCH);
-		sigaddset(&mask, SIGTERM);
-		pthread_sigmask(SIG_BLOCK, &mask, NULL);
-
-		//? pthread_mutex_lock to lock thread and monitor health from main thread
-		thread_lock pt_lck(mtx);
-		if (pt_lck.status != 0) {
-			Global::exit_error_msg = "Exception in runner thread -> pthread_mutex_lock error id: " + to_string(pt_lck.status);
-			Global::thread_exception = true;
-			Input::interrupt = true;
-			stopping = true;
-		}
+	void _runner() {
 
 		//* ----------------------------------------------- THREAD LOOP -----------------------------------------------
 		while (not Global::quitting) {
@@ -420,9 +342,6 @@ namespace Runner {
 
 			//? Atomic lock used for blocking non thread-safe actions in main thread
 			atomic_lock lck(active);
-
-			//? Set effective user if SUID bit is set
-			gain_priv powers{};
 
 			auto& conf = current_conf;
 
@@ -443,7 +362,7 @@ namespace Runner {
 						if (Global::debug) debug_timer("cpu", collect_begin);
 
 						//? Start collect
-						auto cpu = Cpu::collect(conf.no_update);
+						Cpu::cpu_info cpu = Cpu::collect(conf.no_update);
 
 						if (Global::debug) debug_timer("cpu", draw_begin);
 
@@ -569,7 +488,7 @@ namespace Runner {
 				<< Term::sync_end << flush;
 		}
 		//* ----------------------------------------------- THREAD LOOP -----------------------------------------------
-		pthread_exit(NULL);
+		
 	}
 	//? ------------------------------------------ Secondary thread end -----------------------------------------------
 
@@ -577,14 +496,9 @@ namespace Runner {
 	void run(const string& box, const bool no_update, const bool force_redraw) {
 		atomic_wait_for(active, true, 5000);
 		if (active) {
-			Logger::error("Stall in Runner thread, restarting!");
-			active = false;
-			// exit(1);
-			pthread_cancel(Runner::runner_id);
-			if (pthread_create(&Runner::runner_id, NULL, &Runner::_runner, NULL) != 0) {
-				Global::exit_error_msg = "Failed to re-create _runner thread!";
-				clean_quit(1);
-			}
+			Logger::error("Stall in Runner thread, quitting!");
+			active = false;	
+			clean_quit(1);
 		}
 		if (stopping or Global::resized) return;
 
@@ -618,28 +532,9 @@ namespace Runner {
 	//* Stops any work being done in runner thread and checks for thread errors
 	void stop() {
 		stopping = true;
-		int ret = pthread_mutex_trylock(&mtx);
-		if (ret != EBUSY and not Global::quitting) {
-			if (active) active = false;
-			Global::exit_error_msg = "Runner thread died unexpectedly!";
-			clean_quit(1);
-		}
-		else if (ret == EBUSY) {
-			atomic_wait_for(active, true, 5000);
-			if (active) {
-				active = false;
-				if (Global::quitting) {
-					return;
-				}
-				else {
-					Global::exit_error_msg = "No response from Runner thread, quitting!";
-					clean_quit(1);
-				}
-			}
-			thread_trigger();
-			atomic_wait_for(active, false, 100);
-			atomic_wait_for(active, true, 100);
-		}
+		thread_trigger();
+		atomic_wait_for(active, false, 100);
+		atomic_wait_for(active, true, 100);
 		stopping = false;
 	}
 
@@ -653,62 +548,55 @@ int main(int argc, char **argv) {
 
 	Global::start_time = time_s();
 
-	//? Save real and effective userid's and drop priviliges until needed if running with SUID bit set
-	Global::real_uid = getuid();
-	Global::set_uid = geteuid();
-	if (Global::real_uid != Global::set_uid) {
-		if (seteuid(Global::real_uid) != 0) {
-			Global::real_uid = Global::set_uid;
-			Global::exit_error_msg = "Failed to change effective user ID. Unset btop SUID bit to ensure security on this system. Quitting!";
-			clean_quit(1);
-		}
-	}
-
 	//? Call argument parser if launched with arguments
 	if (argc > 1) argumentParser(argc, argv);
 
 	//? Setup paths for config, log and user themes
-	for (const auto& env : {"XDG_CONFIG_HOME", "HOME"}) {
-		if (std::getenv(env) != NULL and access(std::getenv(env), W_OK) != -1) {
-			Config::conf_dir = fs::path(std::getenv(env)) / (((string)env == "HOME") ? ".config/btop" : "btop");
-			break;
-		}
-	}
-	if (Config::conf_dir.empty()) {
-		cout 	<< "WARNING: Could not get path user HOME folder.\n"
-				<< "Make sure $XDG_CONFIG_HOME or $HOME environment variables is correctly set to fix this." << endl;
-	}
-	else {
-		if (std::error_code ec; not fs::is_directory(Config::conf_dir) and not fs::create_directories(Config::conf_dir, ec)) {
-			cout 	<< "WARNING: Could not create or access btop config directory. Logging and config saving disabled.\n"
-					<< "Make sure $XDG_CONFIG_HOME or $HOME environment variables is correctly set to fix this." << endl;
-		}
-		else {
-			Config::conf_file = Config::conf_dir / "btop.conf";
-			Logger::logfile = Config::conf_dir / "btop.log";
-			Theme::user_theme_dir = Config::conf_dir / "themes";
-			if (not fs::exists(Theme::user_theme_dir) and not fs::create_directory(Theme::user_theme_dir, ec)) Theme::user_theme_dir.clear();
-		}
-	}
-	//? Try to find global btop theme path relative to binary path
-#if defined(__linux__)
-	{ 	std::error_code ec;
-		Global::self_path = fs::read_symlink("/proc/self/exe", ec).remove_filename();
-	}
-#endif
-	if (std::error_code ec; not Global::self_path.empty()) {
-		Theme::theme_dir = fs::canonical(Global::self_path / "../share/btop/themes", ec);
-		if (ec or not fs::is_directory(Theme::theme_dir) or access(Theme::theme_dir.c_str(), R_OK) == -1) Theme::theme_dir.clear();
-	}
-	//? If relative path failed, check two most common absolute paths
-	if (Theme::theme_dir.empty()) {
-		for (auto theme_path : {"/usr/local/share/btop/themes", "/usr/share/btop/themes"}) {
-			if (fs::is_directory(fs::path(theme_path)) and access(theme_path, R_OK) != -1) {
-				Theme::theme_dir = fs::path(theme_path);
-				break;
-			}
-		}
-	}
+//	for (const auto& env : {"XDG_CONFIG_HOME", "HOME"}) {
+//		if (std::getenv(env) != NULL and access(std::getenv(env), W_OK) != -1) {
+//			Config::conf_dir = fs::path(std::getenv(env)) / (((string)env == "HOME") ? ".config/btop" : "btop");
+//			break;
+//		}
+//	}
+//	if (Config::conf_dir.empty()) {
+//		cout 	<< "WARNING: Could not get path user HOME folder.\n"
+//				<< "Make sure $XDG_CONFIG_HOME or $HOME environment variables is correctly set to fix this." << endl;
+//	}
+//	else {
+//		if (std::error_code ec; not fs::is_directory(Config::conf_dir) and not fs::create_directories(Config::conf_dir, ec)) {
+//			cout 	<< "WARNING: Could not create or access btop config directory. Logging and config saving disabled.\n"
+//					<< "Make sure $XDG_CONFIG_HOME or $HOME environment variables is correctly set to fix this." << endl;
+//		}
+//		else {
+//			Config::conf_file = Config::conf_dir / "btop.conf";
+//			Logger::logfile = Config::conf_dir / "btop.log";
+//			Theme::user_theme_dir = Config::conf_dir / "themes";
+//			if (not fs::exists(Theme::user_theme_dir) and not fs::create_directory(Theme::user_theme_dir, ec)) Theme::user_theme_dir.clear();
+//		}
+//	}
+//	//? Try to find global btop theme path relative to binary path
+//#if defined(__linux__)
+//	{ 	std::error_code ec;
+//		Global::self_path = fs::read_symlink("/proc/self/exe", ec).remove_filename();
+//	}
+//#endif
+//	if (std::error_code ec; not Global::self_path.empty()) {
+//		Theme::theme_dir = fs::canonical(Global::self_path / "../share/btop/themes", ec);
+//		if (ec or not fs::is_directory(Theme::theme_dir) or access(Theme::theme_dir.c_str(), R_OK) == -1) Theme::theme_dir.clear();
+//	}
+//	//? If relative path failed, check two most common absolute paths
+//	if (Theme::theme_dir.empty()) {
+//		for (auto theme_path : {"/usr/local/share/btop/themes", "/usr/share/btop/themes"}) {
+//			if (fs::is_directory(fs::path(theme_path)) and access(theme_path, R_OK) != -1) {
+//				Theme::theme_dir = fs::path(theme_path);
+//				break;
+//			}
+//		}
+//	}
+
+	Config::conf_dir = "c:/temp";
+	Config::conf_file = Config::conf_dir / "btop.conf";
+	Logger::logfile = Config::conf_dir / "btop.log";
 
 	//? Config init
 	{	vector<string> load_warnings;
@@ -717,6 +605,7 @@ int main(int argc, char **argv) {
 		if (Config::current_boxes.empty()) Config::check_boxes(Config::getS("shown_boxes"));
 		Config::set("lowcolor", (Global::arg_low_color ? true : not Config::getB("truecolor")));
 
+		Global::debug = true;
 		if (Global::debug) {
 			Logger::set("DEBUG");
 			Logger::debug("Starting in DEBUG mode!");
@@ -727,91 +616,13 @@ int main(int argc, char **argv) {
 
 		for (const auto& err_str : load_warnings) Logger::warning(err_str);
 	}
-
-	//? Try to find and set a UTF-8 locale
-	if (std::setlocale(LC_ALL, "") != NULL and not s_contains((string)std::setlocale(LC_ALL, ""), ";")
-	and str_to_upper(s_replace((string)std::setlocale(LC_ALL, ""), "-", "")).ends_with("UTF8")) {
-		Logger::debug("Using locale " + (string)std::setlocale(LC_ALL, ""));
-	}
-	else {
-		string found;
-		bool set_failure = false;
-		for (const auto loc_env : array{"LANG", "LC_ALL"}) {
-			if (std::getenv(loc_env) != NULL and str_to_upper(s_replace((string)std::getenv(loc_env), "-", "")).ends_with("UTF8")) {
-				found = std::getenv(loc_env);
-				if (std::setlocale(LC_ALL, found.c_str()) == NULL) {
-					set_failure = true;
-					Logger::warning("Failed to set locale " + found + " continuing anyway.");
-				}
-			}
-		}
-		if (found.empty()) {
-			if (setenv("LC_ALL", "", 1) == 0 and setenv("LANG", "", 1) == 0) {
-				try {
-					if (const auto loc = std::locale("").name(); not loc.empty() and loc != "*") {
-						for (auto& l : ssplit(loc, ';')) {
-							if (str_to_upper(s_replace(l, "-", "")).ends_with("UTF8")) {
-								found = l.substr(l.find('=') + 1);
-								if (std::setlocale(LC_ALL, found.c_str()) != NULL) {
-									break;
-								}
-							}
-						}
-					}
-				}
-				catch (...) { found.clear(); }
-			}
-		}
-
-	#ifdef __APPLE__
-		if (found.empty()) {
-			CFLocaleRef cflocale = CFLocaleCopyCurrent();
-			CFStringRef id_value = (CFStringRef)CFLocaleGetValue(cflocale, kCFLocaleIdentifier);
-			auto loc_id = CFStringGetCStringPtr(id_value, kCFStringEncodingUTF8);
-			CFRelease(cflocale);
-			std::string cur_locale = (loc_id != nullptr ? loc_id : "");
-			if (cur_locale.empty()) {
-				Logger::warning("No UTF-8 locale detected! Some symbols might not display correctly.");
-			}
-			else if (std::setlocale(LC_ALL, string(cur_locale + ".UTF-8").c_str()) != NULL) {
-				Logger::debug("Setting LC_ALL=" + cur_locale + ".UTF-8");
-			}
-			else if(std::setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
-				Logger::debug("Setting LC_ALL=en_US.UTF-8");
-			}
-			else {
-				Logger::warning("Failed to set macos locale, continuing anyway.");
-			}
-		}
-	#else
-		if (found.empty() and Global::utf_force)
-			Logger::warning("No UTF-8 locale detected! Forcing start with --utf-force argument.");
-		else if (found.empty()) {
-			Global::exit_error_msg = "No UTF-8 locale detected!\nUse --utf-force argument to force start if you're sure your terminal can handle it.";
-			clean_quit(1);
-		}
-	#endif
-		else if (not set_failure)
-			Logger::debug("Setting LC_ALL=" + found);
-	}
+	
 
 	//? Initialize terminal and set options
 	if (not Term::init()) {
 		Global::exit_error_msg = "No tty detected!\nbtop++ needs an interactive shell to run.";
 		clean_quit(1);
 	}
-
-	if (Term::current_tty != "unknown") Logger::info("Running on " + Term::current_tty);
-	if (not Global::arg_tty and Config::getB("force_tty")) {
-		Config::set("tty_mode", true);
-		Logger::info("Forcing tty mode: setting 16 color mode and using tty friendly graph symbols");
-	}
-#ifndef __APPLE__
-	else if (not Global::arg_tty and Term::current_tty.starts_with("/dev/tty")) {
-		Config::set("tty_mode", true);
-		Logger::info("Real tty detected: setting 16 color mode and using tty friendly graph symbols");
-	}
-#endif
 
 	//? Check for valid terminal dimensions
 	{
@@ -842,13 +653,11 @@ int main(int argc, char **argv) {
 	//? Setup signal handlers for CTRL-C, CTRL-Z, resume and terminal resize
 	std::atexit(_exit_handler);
 	std::signal(SIGINT, _signal_handler);
-	std::signal(SIGTSTP, _signal_handler);
-	std::signal(SIGCONT, _signal_handler);
-	std::signal(SIGWINCH, _signal_handler);
 
 	//? Start runner thread
 	Runner::thread_sem_init();
-	if (pthread_create(&Runner::runner_id, NULL, &Runner::_runner, NULL) != 0) {
+	std::thread runner_thread(Runner::_runner);
+	if (not runner_thread.joinable()) {
 		Global::exit_error_msg = "Failed to create _runner thread!";
 		clean_quit(1);
 	}
@@ -889,7 +698,6 @@ int main(int argc, char **argv) {
 			//? Check for exceptions in secondary thread and exit with fail signal if true
 			if (Global::thread_exception) clean_quit(1);
 			else if (Global::should_quit) clean_quit(0);
-			else if (Global::should_sleep) { Global::should_sleep = false; _sleep(); }
 
 			//? Make sure terminal size hasn't changed (in case of SIGWINCH not working properly)
 			term_resize(Global::resized);

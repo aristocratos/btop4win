@@ -25,9 +25,7 @@ tab-size = 4
 #include <deque>
 #include <robin_hood.h>
 #include <array>
-#include <ifaddrs.h>
 #include <tuple>
-#include <unistd.h>
 
 using std::string, std::vector, std::deque, robin_hood::unordered_flat_map, std::atomic, std::array, std::tuple;
 
@@ -46,7 +44,6 @@ namespace Global {
 	extern atomic<bool> resized;
 	extern string overlay;
 	extern string clock;
-	extern uid_t real_uid, set_uid;
 }
 
 namespace Runner {
@@ -55,7 +52,6 @@ namespace Runner {
 	extern atomic<bool> reading;
 	extern atomic<bool> stopping;
 	extern atomic<bool> redraw;
-	extern pthread_t runner_id;
 	extern bool pause_output;
 	extern string debug_bg;
 

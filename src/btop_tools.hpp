@@ -28,15 +28,7 @@ tab-size = 4
 #include <chrono>
 #include <thread>
 #include <tuple>
-#include <pthread.h>
 #include <limits.h>
-#ifndef HOST_NAME_MAX
-	#ifdef __APPLE__
-		#define HOST_NAME_MAX 255
-	#else
-		#define HOST_NAME_MAX 64
-	#endif
-#endif
 
 using std::string, std::vector, std::atomic, std::to_string, std::tuple, std::array;
 
@@ -45,7 +37,7 @@ using std::string, std::vector, std::atomic, std::to_string, std::tuple, std::ar
 
 //* Collection of escape codes for text style and formatting
 namespace Fx {
-	const string e = "\x1b[";				//* Escape sequence start
+	const string e = "\033[";				//* Escape sequence start
 	const string b = e + "1m";				//* Bold on/off
 	const string ub = e + "22m";			//* Bold off
 	const string d = e + "2m";				//* Dark on
@@ -278,18 +270,6 @@ namespace Tools {
 
 	string hostname();
 	string username();
-
-	static inline void busy_wait (void) {
-	#if defined __i386__ || defined __x86_64__
-		__builtin_ia32_pause();
-	#elif defined __ia64__
-		__asm volatile("hint @pause" : : : "memory");
-	#elif defined __sparc__ && (defined __arch64__ || defined __sparc_v9__)
-		__asm volatile("membar #LoadLoad" : : : "memory");
-	#else
-		__asm volatile("" : : : "memory");
-	#endif
-	}
 
 	void atomic_wait(const atomic<bool>& atom, const bool old=true) noexcept;
 

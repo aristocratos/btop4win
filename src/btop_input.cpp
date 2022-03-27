@@ -404,18 +404,18 @@ namespace Input {
 					if (key == "-" or key == "space") Proc::collapse = pid;
 					no_update = false;
 				}
-				else if (is_in(key, "t", kill_key) and (Config::getB("show_detailed") or Config::getI("selected_pid") > 0)) {
-					atomic_wait(Runner::active);
-					if (Config::getB("show_detailed") and Config::getI("proc_selected") == 0 and Proc::detailed.status == "Dead") return;
-					Menu::show(Menu::Menus::SignalSend, (key == "t" ? SIGTERM : SIGKILL));
-					return;
-				}
-				else if (key == "s" and (Config::getB("show_detailed") or Config::getI("selected_pid") > 0)) {
-					atomic_wait(Runner::active);
-					if (Config::getB("show_detailed") and Config::getI("proc_selected") == 0 and Proc::detailed.status == "Dead") return;
-					Menu::show(Menu::Menus::SignalChoose);
-					return;
-				}
+				//else if (is_in(key, "t", kill_key) and (Config::getB("show_detailed") or Config::getI("selected_pid") > 0)) {
+				//	atomic_wait(Runner::active);
+				//	if (Config::getB("show_detailed") and Config::getI("proc_selected") == 0 and Proc::detailed.status == "Dead") return;
+				//	Menu::show(Menu::Menus::SignalSend, (key == "t" ? SIGTERM : SIGKILL));
+				//	return;
+				//}
+				//else if (key == "s" and (Config::getB("show_detailed") or Config::getI("selected_pid") > 0)) {
+				//	atomic_wait(Runner::active);
+				//	if (Config::getB("show_detailed") and Config::getI("proc_selected") == 0 and Proc::detailed.status == "Dead") return;
+				//	Menu::show(Menu::Menus::SignalChoose);
+				//	return;
+				//}
 				else if (is_in(key, "up", "down", "page_up", "page_down", "home", "end") or (vim_keys and is_in(key, "j", "k", "g", "G"))) {
 					proc_mouse_scroll:
 					redraw = false;

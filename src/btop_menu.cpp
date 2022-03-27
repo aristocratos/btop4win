@@ -714,10 +714,10 @@ namespace Menu {
 				signalKillRet = ESRCH;
 				menuMask.set(SignalReturn);
 			}
-			else if (kill(s_pid, selected_signal) != 0) {
+			/*else if (kill(s_pid, selected_signal) != 0) {
 				signalKillRet = errno;
 				menuMask.set(SignalReturn);
-			}
+			}*/
 			return Closed;
 		}
 		else if (key.size() == 1 and isdigit(key.at(0)) and selected_signal < 10) {
@@ -830,10 +830,10 @@ namespace Menu {
 		auto ret = messageBox.input(key);
 		if (ret == msgBox::Ok_Yes) {
 			signalKillRet = 0;
-			if (kill(s_pid, signalToSend) != 0) {
+			/*if (kill(s_pid, signalToSend) != 0) {
 				signalKillRet = errno;
 				menuMask.set(SignalReturn);
-			}
+			}*/
 			messageBox.clear();
 			return Closed;
 		}
@@ -1231,7 +1231,7 @@ namespace Menu {
 			auto cy = y+9;
 			for (int c = 0, i = max(0, item_height * page); c++ < item_height and i < (int)categories[selected_cat].size(); i++) {
 				const auto& option = categories[selected_cat][i][0];
-				const auto& value = (option == "color_theme" ? (string) fs::path(Config::getS("color_theme")).stem() : Config::getAsString(option));
+				const auto& value = (option == "color_theme" ? fs::path(Config::getS("color_theme")).stem().string() : Config::getAsString(option));
 
 				out += Mv::to(cy++, x + 1) + (c-1 == selected ? Theme::c("selected_bg") + Theme::c("selected_fg") : Theme::c("title"))
 					+ Fx::b + cjust(capitalize(s_replace(option, "_", " "))

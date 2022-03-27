@@ -21,7 +21,6 @@ tab-size = 4
 #include <ranges>
 #include <algorithm>
 #include <fstream>
-#include <unistd.h>
 
 #include <btop_tools.hpp>
 #include <btop_config.hpp>
@@ -406,8 +405,8 @@ namespace Theme {
 		for (const auto& path : { user_theme_dir, theme_dir } ) {
 			if (path.empty()) continue;
 			for (auto& file : fs::directory_iterator(path)) {
-				if (file.path().extension() == ".theme" and access(file.path().c_str(), R_OK) != -1 and not v_contains(themes, file.path().c_str())) {
-					themes.push_back(file.path().c_str());
+				if (file.path().extension() == ".theme" and file.is_regular_file()) {
+					themes.push_back(file.path().string());
 				}
 			}
 		}
@@ -426,7 +425,7 @@ namespace Theme {
 		if (theme == "TTY" or Config::getB("tty_mode"))
 			generateTTYColors();
 		else {
-			generateColors((theme == "Default" or theme_path.empty() ? Default_theme : loadFile(theme_path)));
+			generateColors((theme == "Default" or theme_path.empty() ? Default_theme : loadFile(theme_path.string())));
 			generateGradients();
 		}
 		Term::fg = colors.at("main_fg");

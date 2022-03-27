@@ -26,10 +26,13 @@ tab-size = 4
 #include <ranges>
 #include <robin_hood.h>
 #include <widechar_width.hpp>
+#include <codecvt>
 
-#include <unistd.h>
-#include <termios.h>
-#include <sys/ioctl.h>
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <windows.h>
+#include <winsock.h>
 
 #include <btop_shared.hpp>
 #include <btop_tools.hpp>
@@ -50,37 +53,33 @@ namespace Term {
 	string current_tty;
 
 	namespace {
-		struct termios initial_settings;
+		//struct termios initial_settings;
 
 		//* Toggle terminal input echo
 		bool echo(bool on=true) {
-			struct termios settings;
-			if (tcgetattr(STDIN_FILENO, &settings)) return false;
-			if (on) settings.c_lflag |= ECHO;
-			else settings.c_lflag &= ~(ECHO);
-			return 0 == tcsetattr(STDIN_FILENO, TCSANOW, &settings);
+			HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+			DWORD mode = 0;
+			GetConsoleMode(hStdin, &mode);
+			return SetConsoleMode(hStdin, mode & (on ? ENABLE_ECHO_INPUT : ~ENABLE_ECHO_INPUT));
 		}
 
 		//* Toggle need for return key when reading input
 		bool linebuffered(bool on=true) {
-			struct termios settings;
-			if (tcgetattr(STDIN_FILENO, &settings)) return false;
-			if (on) settings.c_lflag |= ICANON;
-			else settings.c_lflag &= ~(ICANON);
-			if (tcsetattr(STDIN_FILENO, TCSANOW, &settings)) return false;
-			if (on) setlinebuf(stdin);
-			else setbuf(stdin, NULL);
-			return true;
+			HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+			DWORD mode = 0;
+			GetConsoleMode(hStdin, &mode);
+			return SetConsoleMode(hStdin, mode & (on ? ENABLE_LINE_INPUT : ~ENABLE_LINE_INPUT));
 		}
 	}
 
 	bool refresh(bool only_check) {
-		struct winsize w;
-		if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) < 0) return false;
-		if (width != w.ws_col or height != w.ws_row) {
+		CONSOLE_SCREEN_BUFFER_INFO csbi;
+		
+		if (not GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi)) return false;
+		if (width != csbi.srWindow.Right - csbi.srWindow.Left + 1 or height != csbi.srWindow.Bottom - csbi.srWindow.Top + 1) {
 			if (not only_check) {
-				width = w.ws_col;
-				height = w.ws_row;
+				width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+				height = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
 			}
 			return true;
 		}
@@ -107,10 +106,17 @@ namespace Term {
 
 	bool init() {
 		if (not initialized) {
-			initialized = (bool)isatty(STDIN_FILENO);
+			initialized = true;
 			if (initialized) {
-				tcgetattr(STDIN_FILENO, &initial_settings);
-				current_tty = (ttyname(STDIN_FILENO) != NULL ? (string)ttyname(STDIN_FILENO) : "unknown");
+				//tcgetattr(STDIN_FILENO, &initial_settings);
+				current_tty = "unknown";
+				HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
+				DWORD consoleMode;
+				GetConsoleMode(handleOut, &consoleMode);
+				consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+				consoleMode |= DISABLE_NEWLINE_AUTO_RETURN;
+				SetConsoleMode(handleOut, consoleMode);
+				SetConsoleOutputCP(65001);
 
 				//? Disable stream sync
 				cin.sync_with_stdio(false);
@@ -132,7 +138,7 @@ namespace Term {
 
 	void restore() {
 		if (initialized) {
-			tcsetattr(STDIN_FILENO, TCSANOW, &initial_settings);
+			//tcsetattr(STDIN_FILENO, TCSANOW, &initial_settings);
 			cout << mouse_off << clear << Fx::reset << normal_screen << show_cursor << flush;
 			initialized = false;
 		}
@@ -140,31 +146,6 @@ namespace Term {
 }
 
 //? --------------------------------------------------- FUNCTIONS -----------------------------------------------------
-
-// ! Dsiabled due to issue when compiling with musl, reverted back to using regex
-// namespace Fx {
-// 	string uncolor(const string& s) {
-// 		string out = s;
-// 		for (size_t offset = 0, start_pos = 0, end_pos = 0;;) {
-// 			start_pos = (offset == 0) ? out.find('\x1b') : offset;
-// 			if (start_pos == string::npos)
-// 				break;
-// 			offset = start_pos + 1;
-// 			end_pos = out.find('m', offset);
-// 			if (end_pos == string::npos)
-// 				break;
-// 			else if (auto next_pos = out.find('\x1b', offset); not isdigit(out[end_pos - 1]) or end_pos > next_pos) {
-// 			 	offset = next_pos;
-// 				continue;
-// 			}
-
-// 			out.erase(start_pos, (end_pos - start_pos)+1);
-// 			offset = 0;
-// 		}
-// 		out.shrink_to_fit();
-// 		return out;
-// 	}
-// }
 
 namespace Tools {
 
@@ -393,15 +374,15 @@ namespace Tools {
 	}
 
 	string strf_time(const string& strf) {
-		auto in_time_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-		std::tm bt {};
+		const time_t in_time_t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 		std::stringstream ss;
-		ss << std::put_time(localtime_r(&in_time_t, &bt), strf.c_str());
+		struct tm* bt = localtime(&in_time_t);
+		ss << std::put_time(bt, strf.c_str());
 		return ss.str();
 	}
 
 	void atomic_wait(const atomic<bool>& atom, const bool old) noexcept {
-		while (atom.load(std::memory_order_relaxed) == old ) busy_wait();
+		while (atom.load(std::memory_order_relaxed) == old );
 	}
 
 	void atomic_wait_for(const atomic<bool>& atom, const bool old, const uint64_t wait_ms) noexcept {
@@ -426,7 +407,7 @@ namespace Tools {
 			for (string readstr; getline(file, readstr); out += readstr);
 		}
 		catch (const std::exception& e) {
-			Logger::error("readfile() : Exception when reading " + (string)path + " : " + e.what());
+			Logger::error("readfile() : Exception when reading " + path.string() + " : " + e.what());
 			return fallback;
 		}
 		return (out.empty() ? fallback : out);
@@ -445,9 +426,10 @@ namespace Tools {
 	}
 
 	string hostname() {
-		char host[HOST_NAME_MAX];
-		gethostname(host, HOST_NAME_MAX);
-		return (string)host;
+		//char host[256];
+		//gethostname(host, 256);
+		//return string(host);
+		return "unknown";
 	}
 
 	string username() {
@@ -467,17 +449,6 @@ namespace Logger {
 	size_t loglevel;
 	fs::path logfile;
 
-	//* Wrapper for lowering priviliges if using SUID bit and currently isn't using real userid
-	class lose_priv {
-		int status = -1;
-	public:
-		lose_priv() {
-			if (geteuid() != Global::real_uid) this->status = seteuid(Global::real_uid);
-		}
-		~lose_priv() {
-			if (status == 0) status = seteuid(Global::set_uid);
-		}
-	};
 
 	void set(const string& level) {
 		loglevel = v_index(log_levels, level);
@@ -486,7 +457,6 @@ namespace Logger {
 	void log_write(const size_t level, const string& msg) {
 		if (loglevel < level or logfile.empty()) return;
 		atomic_lock lck(busy, true);
-		lose_priv neutered{};
 		std::error_code ec;
 		try {
 			if (fs::exists(logfile) and fs::file_size(logfile, ec) > 1024 << 10 and not ec) {
