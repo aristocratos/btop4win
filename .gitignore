@@ -32,6 +32,11 @@
 *.app
 
 build
+Build
+debug
+Debug
+release
+Release
 bin
 btop
 .*

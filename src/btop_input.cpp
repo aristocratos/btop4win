@@ -16,6 +16,8 @@ indent = tab
 tab-size = 4
 */
 
+#pragma warning (disable : 4455)
+
 #include <iostream>
 #include <ranges>
 #include <vector>
@@ -80,58 +82,6 @@ namespace Input {
 	deque<string> history(50, "");
 	string old_filter;
 
-	//struct InputThr {
-	//	InputThr() : thr(run, this) {
-	//	}
-
-	//	static void run(InputThr* that) {
-	//		that->runImpl();
-	//	}
-
-	//	void runImpl() {
-	//		char ch = 0;
-
-	//		// TODO(pg83): read whole buffer
-	//		while (cin.get(ch)) {
-	//			std::lock_guard<std::mutex> g(lock);
-	//			current.push_back(ch);
-	//			if (current.size() > 100) {
-	//				current.clear();
-	//			}
-	//		}
-	//	}
-
-	//	size_t avail() {
-	//		std::lock_guard<std::mutex> g(lock);
-
-	//		return current.size();
-	//	}
-
-	//	std::string get() {
-	//		std::string res;
-
-	//		{
-	//			std::lock_guard<std::mutex> g(lock);
-
-	//			res.swap(current);
-	//		}
-
-	//		return res;
-	//	}
-
-	//	static InputThr& instance() {
-	//		// intentional memory leak, to simplify shutdown process
-	//		static InputThr* input = new InputThr();
-
-	//		return *input;
-	//	}
-
-	//	std::string current;
-	//	// TODO(pg83): use std::conditional_variable instead of sleep
-	//	std::mutex lock;
-	//	std::thread thr;
-	//};
-
 	bool poll(int timeout) {
 		HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
 		DWORD waiting;
@@ -160,8 +110,11 @@ namespace Input {
 			throw std::runtime_error("Failed reading input!");
 
 		if (cNumRead > 0) {
-			
-			if (iRec.EventType == KEY_EVENT and iRec.Event.KeyEvent.bKeyDown) {
+			if (iRec.EventType == WINDOW_BUFFER_SIZE_EVENT) {
+				Input::interrupt = true;
+				return "";
+			}
+			else if (iRec.EventType == KEY_EVENT and iRec.Event.KeyEvent.bKeyDown) {
 				if (Key_escapes.contains(iRec.Event.KeyEvent.wVirtualKeyCode)) {
 					key = Key_escapes.at(iRec.Event.KeyEvent.wVirtualKeyCode);
 

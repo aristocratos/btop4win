@@ -123,6 +123,7 @@ namespace Mem {
 	const array<string, 4> mem_names = {"used", "available", "cached", "free"};
 	const array<string, 2> swap_names = {"swap_used", "swap_free"};
 	extern int disk_ios;
+	extern int64_t totalMem;
 
 	struct disk_info {
 		std::filesystem::path dev;

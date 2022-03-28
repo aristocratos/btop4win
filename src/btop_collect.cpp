@@ -16,6 +16,8 @@ indent = tab
 tab-size = 4
 */
 
+#pragma warning (disable : 4455)
+
 #include <fstream>
 #include <ranges>
 #include <cmath>
@@ -26,6 +28,8 @@ tab-size = 4
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <windows.h>
+#include <psapi.h>
+#pragma comment( lib, "psapi.lib" )
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -45,7 +49,6 @@ namespace Cpu {
 	vector<string> available_fields;
 	vector<string> available_sensors = {"Auto"};
 	cpu_info current_cpu;
-	fs::path freq_path = "/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq";
 	bool got_sensors = false, cpu_temp_only = false;
 
 	//* Populate found_sensors map
@@ -84,16 +87,18 @@ namespace Shared {
 
 		//? Shared global variables init
 		procPath = "";
-
 		passwd_path = "";
-		
-		coreCount = 12;
+
+		SYSTEM_INFO sysinfo;
+		GetSystemInfo(&sysinfo);
+
+		coreCount = sysinfo.dwNumberOfProcessors;
 		if (coreCount < 1) {
 			coreCount = 1;
 			Logger::warning("Could not determine number of cores, defaulting to 1.");
 		}
 
-		pageSize = 4096;
+		pageSize = sysinfo.dwPageSize;
 		if (pageSize <= 0) {
 			pageSize = 4096;
 			Logger::warning("Could not get system page size. Defaulting to 4096, processes memory usage might be incorrect.");
@@ -730,22 +735,9 @@ namespace Mem {
 	fs::file_time_type fstab_time;
 	int disk_ios = 0;
 	vector<string> last_found;
+	int64_t totalMem = 0;
 
 	mem_info current_mem {};
-
-	uint64_t get_totalMem() {
-		int64_t totalMem;
-		
-		MEMORYSTATUSEX statex;
-
-		statex.dwLength = sizeof(statex);
-
-		GlobalMemoryStatusEx(&statex);
-
-		totalMem = static_cast<int64_t>(statex.ullTotalPhys);
-
-		return totalMem;
-	}
 
 	auto collect(const bool no_update) -> mem_info& {
 		if (Runner::stopping or (no_update and not current_mem.percent.at("used").empty())) return current_mem;
@@ -753,54 +745,23 @@ namespace Mem {
 		auto& show_swap = Config::getB("show_swap");
 		auto& swap_disk = Config::getB("swap_disk");
 		auto& show_disks = Config::getB("show_disks");
-		auto totalMem = get_totalMem();
-		
-
 		auto& mem = current_mem;
 
-		mem.stats.at("free") = 0;
-		mem.stats.at("available") = 0;
-		mem.stats.at("cached") = 0;
-		mem.stats.at("swap_total") = 0;
+		PERFORMANCE_INFORMATION perfinfo;
+		DWORD perfsize = sizeof(perfinfo);
+		GetPerformanceInfo(&perfinfo, perfsize);
 
-	//	//? Read memory info from /proc/meminfo
-	//	ifstream meminfo(Shared::procPath / "meminfo");
-	//	if (meminfo.good()) {
-	//		bool got_avail = false;
-	//		for (string label; meminfo.peek() != 'D' and meminfo >> label;) {
-	//			if (label == "MemFree:") {
-	//				meminfo >> mem.stats.at("free");
-	//				mem.stats.at("free") <<= 10;
-	//			}
-	//			else if (label == "MemAvailable:") {
-	//				meminfo >> mem.stats.at("available");
-	//				mem.stats.at("available") <<= 10;
-	//				got_avail = true;
-	//			}
-	//			else if (label == "Cached:") {
-	//				meminfo >> mem.stats.at("cached");
-	//				mem.stats.at("cached") <<= 10;
-	//				if (not show_swap and not swap_disk) break;
-	//			}
-	//			else if (label == "SwapTotal:") {
-	//				meminfo >> mem.stats.at("swap_total");
-	//				mem.stats.at("swap_total") <<= 10;
-	//			}
-	//			else if (label == "SwapFree:") {
-	//				meminfo >> mem.stats.at("swap_free");
-	//				mem.stats.at("swap_free") <<= 10;
-	//				break;
-	//			}
-	//			meminfo.ignore(SSmax, '\n');
-	//		}
-	//		if (not got_avail) mem.stats.at("available") = mem.stats.at("free") + mem.stats.at("cached");
-	//		mem.stats.at("used") = totalMem - mem.stats.at("available");
-	//		if (mem.stats.at("swap_total") > 0) mem.stats.at("swap_used") = mem.stats.at("swap_total") - mem.stats.at("swap_free");
-	//	}
-	//	else
-	//		throw std::runtime_error("Failed to read /proc/meminfo");
+		totalMem = static_cast<int64_t>(perfinfo.PhysicalTotal * Shared::pageSize);
 
-	//	meminfo.close();
+		
+		mem.stats.at("available") = static_cast<int64_t>(perfinfo.PhysicalAvailable * Shared::pageSize);
+		mem.stats.at("used") = totalMem - mem.stats.at("available");
+		mem.stats.at("cached") = static_cast<int64_t>(perfinfo.SystemCache * Shared::pageSize);
+		mem.stats.at("free") = totalMem - mem.stats.at("used");
+		
+		mem.stats.at("swap_total") = static_cast<int64_t>(perfinfo.CommitLimit * Shared::pageSize);
+		mem.stats.at("swap_used") = static_cast<int64_t>(perfinfo.CommitTotal * Shared::pageSize);
+		mem.stats.at("swap_free") = mem.stats.at("swap_total") - mem.stats.at("swap_used");
 
 		//? Calculate percentages
 		for (const auto& name : mem_names) {

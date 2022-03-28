@@ -16,6 +16,7 @@ indent = tab
 tab-size = 4
 */
 
+#pragma warning (disable : 4455)
 
 #include <csignal>
 #include <exception>
@@ -203,26 +204,11 @@ void term_resize(bool force) {
 	Input::interrupt = true;
 }
 
-//* Exit handler; stops threads, restores terminal and saves config changes
+//* Exit handler; restores terminal and saves config changes
 void clean_quit(int sig) {
 	if (Global::quitting) return;
 	Global::quitting = true;
 	Runner::stop();
-	if (Global::_runner_started) {
-	//#ifdef __APPLE__
-	//	if (pthread_join(Runner::runner_id, NULL) != 0) {
-	//		Logger::warning("Failed to join _runner thread on exit!");
-	//		pthread_cancel(Runner::runner_id);
-	//	}
-	//#else
-	//	struct timespec ts;
-	//	ts.tv_sec = 5;
-	//	if (pthread_timedjoin_np(Runner::runner_id, NULL, &ts) != 0) {
-	//		Logger::warning("Failed to join _runner thread on exit!");
-	//		pthread_cancel(Runner::runner_id);
-	//	}
-	//#endif
-	}
 
 	Config::write();
 
@@ -270,7 +256,6 @@ namespace Runner {
 	atomic<bool> redraw (false);
 
 	std::binary_semaphore do_work(0);
-	inline void thread_sem_init() { ; }
 	inline void thread_wait() { do_work.acquire(); }
 	inline void thread_trigger() { do_work.release(); }
 
@@ -654,7 +639,6 @@ int main(int argc, char **argv) {
 	std::signal(SIGINT, _signal_handler);
 
 	//? Start runner thread
-	Runner::thread_sem_init();
 	std::thread runner_thread(Runner::_runner);
 	if (not runner_thread.joinable()) {
 		Global::exit_error_msg = "Failed to create _runner thread!";

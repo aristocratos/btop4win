@@ -16,6 +16,8 @@ indent = tab
 tab-size = 4
 */
 
+#pragma warning (disable : 4455)
+
 #include <array>
 #include <ranges>
 #include <atomic>
