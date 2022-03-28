@@ -30,6 +30,8 @@ tab-size = 4
 #include <windows.h>
 #include <psapi.h>
 #pragma comment( lib, "psapi.lib" )
+#include <winreg.h>
+#pragma comment( lib, "Advapi32.lib" )
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -160,69 +162,56 @@ namespace Cpu {
 
 	string get_cpuName() {
 		string name;
-		//ifstream cpuinfo(Shared::procPath / "cpuinfo");
-		if (true) {
-			//for (string instr; getline(cpuinfo, instr, ':') and not instr.starts_with("model name");)
-			//	cpuinfo.ignore(SSmax, '\n');
-			//if (cpuinfo.bad()) return name;
-			//else if (not cpuinfo.eof()) {
-			//	cpuinfo.ignore(1);
-			//	getline(cpuinfo, name);
-			//}
-			//else if (fs::exists("/sys/devices")) {
-			//	for (const auto& d : fs::directory_iterator("/sys/devices")) {
-			//		if (string(d.path().filename()).starts_with("arm")) {
-			//			name = d.path().filename();
-			//			break;
-			//		}
-			//	}
-			//	if (not name.empty()) {
-			//		auto name_vec = ssplit(name, '_');
-			//		if (name_vec.size() < 2) return capitalize(name);
-			//		else return capitalize(name_vec.at(1)) + (name_vec.size() > 2 ? ' ' + capitalize(name_vec.at(2)) : "");
-			//	}
+		HKEY hKey;
 
-			//}
-
-			name = "A CPU";
-
-			auto name_vec = ssplit(name);
-
-			if ((s_contains(name, "Xeon"s) or v_contains(name_vec, "Duo"s)) and v_contains(name_vec, "CPU"s)) {
-				auto cpu_pos = v_index(name_vec, "CPU"s);
-				if (cpu_pos < name_vec.size() - 1 and not name_vec.at(cpu_pos + 1).ends_with(')'))
-					name = name_vec.at(cpu_pos + 1);
-				else
-					name.clear();
-			}
-			else if (v_contains(name_vec, "Ryzen"s)) {
-				auto ryz_pos = v_index(name_vec, "Ryzen"s);
-				name = "Ryzen"	+ (ryz_pos < name_vec.size() - 1 ? ' ' + name_vec.at(ryz_pos + 1) : "")
-								+ (ryz_pos < name_vec.size() - 2 ? ' ' + name_vec.at(ryz_pos + 2) : "");
-			}
-			else if (s_contains(name, "Intel"s) and v_contains(name_vec, "CPU"s)) {
-				auto cpu_pos = v_index(name_vec, "CPU"s);
-				if (cpu_pos < name_vec.size() - 1 and not name_vec.at(cpu_pos + 1).ends_with(')') and name_vec.at(cpu_pos + 1) != "@")
-					name = name_vec.at(cpu_pos + 1);
-				else
-					name.clear();
-			}
-			else
-				name.clear();
-
-			if (name.empty() and not name_vec.empty()) {
-				for (const auto& n : name_vec) {
-					if (n == "@") break;
-					name += n + ' ';
-				}
-				name.pop_back();
-				for (const auto& replace : {"Processor", "CPU", "(R)", "(TM)", "Intel", "AMD", "Core"}) {
-					name = s_replace(name, replace, "");
-					name = s_replace(name, "  ", " ");
-				}
-				name = trim(name);
+		if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+			wchar_t cpuName[255];
+			DWORD BufSize = sizeof(cpuName);
+			if (RegQueryValueEx(hKey, L"ProcessorNameString", nullptr, nullptr, (LPBYTE)cpuName, &BufSize) == ERROR_SUCCESS) {
+				std::wstring wbuf(cpuName);
+				name = string(wbuf.begin(), wbuf.end());
 			}
 		}
+
+		if (name.empty()) return "";
+
+		auto name_vec = ssplit(name);
+
+		if ((s_contains(name, "Xeon"s) or v_contains(name_vec, "Duo"s)) and v_contains(name_vec, "CPU"s)) {
+			auto cpu_pos = v_index(name_vec, "CPU"s);
+			if (cpu_pos < name_vec.size() - 1 and not name_vec.at(cpu_pos + 1).ends_with(')'))
+				name = name_vec.at(cpu_pos + 1);
+			else
+				name.clear();
+		}
+		else if (v_contains(name_vec, "Ryzen"s)) {
+			auto ryz_pos = v_index(name_vec, "Ryzen"s);
+			name = "Ryzen"	+ (ryz_pos < name_vec.size() - 1 ? ' ' + name_vec.at(ryz_pos + 1) : "")
+							+ (ryz_pos < name_vec.size() - 2 ? ' ' + name_vec.at(ryz_pos + 2) : "");
+		}
+		else if (s_contains(name, "Intel"s) and v_contains(name_vec, "CPU"s)) {
+			auto cpu_pos = v_index(name_vec, "CPU"s);
+			if (cpu_pos < name_vec.size() - 1 and not name_vec.at(cpu_pos + 1).ends_with(')') and name_vec.at(cpu_pos + 1) != "@")
+				name = name_vec.at(cpu_pos + 1);
+			else
+				name.clear();
+		}
+		else
+			name.clear();
+
+		if (name.empty() and not name_vec.empty()) {
+			for (const auto& n : name_vec) {
+				if (n == "@") break;
+				name += n + ' ';
+			}
+			name.pop_back();
+			for (const auto& replace : {"Processor", "CPU", "(R)", "(TM)", "Intel", "AMD", "Core"}) {
+				name = s_replace(name, replace, "");
+				name = s_replace(name, "  ", " ");
+			}
+			name = trim(name);
+		}
+		
 
 		return name;
 	}
@@ -747,8 +736,8 @@ namespace Mem {
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
 
-		PERFORMANCE_INFORMATION perfinfo;
-		DWORD perfsize = sizeof(perfinfo);
+		static PERFORMANCE_INFORMATION perfinfo;
+		static DWORD perfsize = sizeof(perfinfo);
 		GetPerformanceInfo(&perfinfo, perfsize);
 
 		totalMem = static_cast<int64_t>(perfinfo.PhysicalTotal * Shared::pageSize);
