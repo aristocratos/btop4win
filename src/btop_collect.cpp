@@ -32,6 +32,17 @@ tab-size = 4
 #pragma comment( lib, "psapi.lib" )
 #include <winreg.h>
 #pragma comment( lib, "Advapi32.lib" )
+#include <winternl.h>
+#pragma comment( lib, "ntdll.lib" )
+
+//typedef struct _SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION {
+//	LARGE_INTEGER IdleTime;
+//	LARGE_INTEGER KernelTime;
+//	LARGE_INTEGER UserTime;
+//	LARGE_INTEGER DpcTime;
+//	LARGE_INTEGER InterruptTime;
+//	ULONG InterruptCount;
+//} SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, * PSYSTEM_PROCESSOR_PERFORMANCE_INFORMATION;
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -113,7 +124,6 @@ namespace Shared {
 		}
 
 		//? Init for namespace Cpu
-		//if (not fs::exists(Cpu::freq_path) or access(Cpu::freq_path.c_str(), R_OK) == -1) Cpu::freq_path.clear();
 		Cpu::current_cpu.core_percent.insert(Cpu::current_cpu.core_percent.begin(), Shared::coreCount, {});
 		Cpu::current_cpu.temp.insert(Cpu::current_cpu.temp.begin(), Shared::coreCount + 1, {});
 		Cpu::core_old_totals.insert(Cpu::core_old_totals.begin(), Shared::coreCount, 0);
@@ -143,22 +153,19 @@ namespace Cpu {
 	bool has_battery = true;
 	tuple<int, long, string> current_bat;
 
-	const array<string, 10> time_names = {"user", "nice", "system", "idle", "iowait", "irq", "softirq", "steal", "guest", "guest_nice"};
+	const array<string, 6> time_names = { "kernel", "user", "dpc", "interrupt", "system", "idle" };
 
 	unordered_flat_map<string, long long> cpu_old = {
-			{"totals", 0},
-			{"idles", 0},
+			{"total", 0},
+			{"kernel", 0},
 			{"user", 0},
-			{"nice", 0},
+			{"dpc", 0},
+			{"interrupt", 0},
 			{"system", 0},
 			{"idle", 0},
-			{"iowait", 0},
-			{"irq", 0},
-			{"softirq", 0},
-			{"steal", 0},
-			{"guest", 0},
-			{"guest_nice", 0}
-	};
+			{"totals", 0},
+			{"idles", 0}
+		};
 
 	string get_cpuName() {
 		string name;
@@ -626,11 +633,8 @@ namespace Cpu {
 	auto collect(const bool no_update) -> cpu_info& {
 		if (Runner::stopping or (no_update and not current_cpu.cpu_percent.at("total").empty())) return current_cpu;
 		auto& cpu = current_cpu;
-		return cpu;
 
-	//	ifstream cread;
-
-	//	try {
+	
 	//		//? Get cpu load averages from /proc/loadavg
 	//		cread.open(Shared::procPath / "loadavg");
 	//		if (cread.good()) {
@@ -638,72 +642,73 @@ namespace Cpu {
 	//		}
 	//		cread.close();
 
-	//		//? Get cpu total times for all cores from /proc/stat
-	//		cread.open(Shared::procPath / "stat");
-	//		for (int i = 0; cread.good() and cread.peek() == 'c'; i++) {
-	//			cread.ignore(SSmax, ' ');
+		auto sppi = std::make_unique<_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION[]>(Shared::coreCount);
+		
+		if (not NT_SUCCESS(NtQuerySystemInformation(SystemProcessorPerformanceInformation, sppi.get(), Shared::coreCount * sizeof(_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION), nullptr))) {
+			throw std::runtime_error("Failed to get processor statistics!");
+		}
 
-	//			//? Expected on kernel 2.6.3> : 0=user, 1=nice, 2=system, 3=idle, 4=iowait, 5=irq, 6=softirq, 7=steal, 8=guest, 9=guest_nice
-	//			vector<long long> times;
-	//			long long total_sum = 0;
+		vector<long long> idle, kernel, systemt, user, interrupt, dpc, total;
+		long long idles, totals;
+		long long cpu_total = 0;
 
-	//			for (uint64_t val; cread >> val; total_sum += val) {
-	//				times.push_back(val);
-	//			}
-	//			cread.clear();
-	//			if (times.size() < 4) throw std::runtime_error("Malformatted /proc/stat");
+		//? Usage for each core
+		for (int i = 0; i < Shared::coreCount; i++) {
+			user.push_back(sppi.get()[i].UserTime.QuadPart);
+			idle.push_back(sppi.get()[i].IdleTime.QuadPart);
+			kernel.push_back(sppi.get()[i].KernelTime.QuadPart);
+			dpc.push_back(sppi.get()[i].Reserved1[0].QuadPart);
+			interrupt.push_back(sppi.get()[i].Reserved1[1].QuadPart);
+			
+			systemt.push_back(kernel.back() - idle.back());
 
-	//			//? Subtract fields 8-9 and any future unknown fields
-	//			const long long totals = max(0ll, total_sum - (times.size() > 8 ? std::accumulate(times.begin() + 8, times.end(), 0) : 0));
+			totals = idles = 0;
+			for (auto& v : { kernel, user }) totals += v.back();
+			for (auto& v : { idle, dpc, interrupt }) idles += v.back();
 
-	//			//? Add iowait field if present
-	//			const long long idles = max(0ll, times.at(3) + (times.size() > 4 ? times.at(4) : 0));
+			const long long calc_totals = max(0ll, totals - core_old_totals.at(i));
+			const long long calc_idles = max(0ll, idles - core_old_idles.at(i));
+			core_old_totals.at(i) = totals;
+			core_old_idles.at(i) = idles;
 
-	//			//? Calculate values for totals from first line of stat
-	//			if (i == 0) {
-	//				const long long calc_totals = max(1ll, totals - cpu_old.at("totals"));
-	//				const long long calc_idles = max(1ll, idles - cpu_old.at("idles"));
-	//				cpu_old.at("totals") = totals;
-	//				cpu_old.at("idles") = idles;
+			cpu.core_percent.at(i).push_back(clamp((long long)round((double)(calc_totals - calc_idles) * 100 / calc_totals), 0ll, 100ll));
+			cpu_total += cpu.core_percent.at(i).back();
 
-	//				//? Total usage of cpu
-	//				cpu.cpu_percent.at("total").push_back(clamp((long long)round((double)(calc_totals - calc_idles) * 100 / calc_totals), 0ll, 100ll));
+			//? Reduce size if there are more values than needed for graph
+			if (cpu.core_percent.at(i).size() > 40) cpu.core_percent.at(i).pop_front();
 
-	//				//? Reduce size if there are more values than needed for graph
-	//				while (cmp_greater(cpu.cpu_percent.at("total").size(), width * 2)) cpu.cpu_percent.at("total").pop_front();
+		}
 
-	//				//? Populate cpu.cpu_percent with all fields from stat
-	//				for (int ii = 0; const auto& val : times) {
-	//					cpu.cpu_percent.at(time_names.at(ii)).push_back(clamp((long long)round((double)(val - cpu_old.at(time_names.at(ii))) * 100 / calc_totals), 0ll, 100ll));
-	//					cpu_old.at(time_names.at(ii)) = val;
+		//const array<string, 6> time_names = { "kernel", "user", "dpc", "interrupt", "system", "idle" };
+		
+		vector<long long> times;
+		for (auto& v : { kernel, user, dpc, interrupt, systemt, idle}) {
+			times.push_back(std::accumulate(v.cbegin(), v.cend(), 0));
+		}
+		totals = times.at(0) + times.at(1) + times.at(2) + times.at(3);
+		//idles = times.at(2) + times.at(3) + times.at(5);
+		
+		
+		const long long calc_totals = max(1ll, totals - cpu_old.at("totals"));
+		//const long long calc_idles = max(1ll, idles - cpu_old.at("idles"));
+		cpu_old.at("totals") = totals;
+		//cpu_old.at("idles") = idles;
 
-	//					//? Reduce size if there are more values than needed for graph
-	//					while (cmp_greater(cpu.cpu_percent.at(time_names.at(ii)).size(), width * 2)) cpu.cpu_percent.at(time_names.at(ii)).pop_front();
+		//? Total usage of cpu
+		cpu.cpu_percent.at("total").push_back(clamp(cpu_total / Shared::coreCount, 0ll, 100ll));
 
-	//					if (++ii == 10) break;
-	//				}
-	//			}
-	//			//? Calculate cpu total for each core
-	//			else {
-	//				if (i > Shared::coreCount) break;
-	//				const long long calc_totals = max(0ll, totals - core_old_totals.at(i-1));
-	//				const long long calc_idles = max(0ll, idles - core_old_idles.at(i-1));
-	//				core_old_totals.at(i-1) = totals;
-	//				core_old_idles.at(i-1) = idles;
+		//? Reduce size if there are more values than needed for graph
+		while (cmp_greater(cpu.cpu_percent.at("total").size(), width * 2)) cpu.cpu_percent.at("total").pop_front();
 
-	//				cpu.core_percent.at(i-1).push_back(clamp((long long)round((double)(calc_totals - calc_idles) * 100 / calc_totals), 0ll, 100ll));
+		//? Populate cpu.cpu_percent with all fields from stat
+		for (int ii = 0; const auto& val : times) {
+			cpu.cpu_percent.at(time_names.at(ii)).push_back(clamp((long long)round((double)(val - cpu_old.at(time_names.at(ii))) * 100 / calc_totals), 0ll, 100ll));
+			cpu_old.at(time_names.at(ii)) = val;
 
-	//				//? Reduce size if there are more values than needed for graph
-	//				if (cpu.core_percent.at(i-1).size() > 40) cpu.core_percent.at(i-1).pop_front();
-
-	//			}
-	//		}
-	//	}
-	//	catch (const std::exception& e) {
-	//		Logger::debug("get_cpuHz() : " + (string)e.what());
-	//		if (cread.bad()) throw std::runtime_error("Failed to read /proc/stat");
-	//		else throw std::runtime_error("collect() : " + (string)e.what());
-	//	}
+			//? Reduce size if there are more values than needed for graph
+			while (cmp_greater(cpu.cpu_percent.at(time_names.at(ii)).size(), width * 2)) cpu.cpu_percent.at(time_names.at(ii)).pop_front();
+			ii++;
+		}
 
 	//	if (Config::getB("show_cpu_freq"))
 	//		cpuHz = get_cpuHz();
@@ -711,10 +716,12 @@ namespace Cpu {
 	//	if (Config::getB("check_temp") and got_sensors)
 	//		update_sensors();
 
+		has_battery = false;
+		got_sensors = false;
 	//	if (Config::getB("show_battery") and has_battery)
 	//		current_bat = get_battery();
 
-	//	return cpu;
+		return cpu;
 	}
 }
 
@@ -748,8 +755,8 @@ namespace Mem {
 		mem.stats.at("cached") = static_cast<int64_t>(perfinfo.SystemCache * Shared::pageSize);
 		mem.stats.at("free") = totalMem - mem.stats.at("used");
 		
-		mem.stats.at("swap_total") = static_cast<int64_t>(perfinfo.CommitLimit * Shared::pageSize);
-		mem.stats.at("swap_used") = static_cast<int64_t>(perfinfo.CommitTotal * Shared::pageSize);
+		mem.stats.at("swap_total") = static_cast<int64_t>(perfinfo.CommitLimit * Shared::pageSize) - totalMem;
+		mem.stats.at("swap_used") = static_cast<int64_t>(perfinfo.CommitTotal * Shared::pageSize) - totalMem;
 		mem.stats.at("swap_free") = mem.stats.at("swap_total") - mem.stats.at("swap_used");
 
 		//? Calculate percentages

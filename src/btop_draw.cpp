@@ -126,7 +126,8 @@ namespace Draw {
 				}
 				if (++z < Global::Banner_src.size()) banner += Mv::l(ulen(line[1])) + Mv::d(1);
 			}
-			banner += Mv::r(18 - Global::Version.size())
+			banner += Mv::u(5) + Mv::r(5) + Global::fg_green + "(4win)";
+			banner += Mv::d(5) + Mv::r(7 - Global::Version.size())
 					+ Theme::c("main_fg") + Fx::b + Fx::i + "v" + Global::Version + Fx::reset;
 		}
 		if (redraw) return "";

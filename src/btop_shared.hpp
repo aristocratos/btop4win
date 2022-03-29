@@ -44,6 +44,10 @@ namespace Global {
 	extern atomic<bool> resized;
 	extern string overlay;
 	extern string clock;
+	const string bg_black = "\033[0;40m";
+	const string fg_white = "\033[1;97m";
+	const string fg_green = "\033[1;92m";
+	const string fg_red = "\033[0;91m";
 }
 
 namespace Runner {
@@ -85,16 +89,12 @@ namespace Cpu {
 	struct cpu_info {
 		unordered_flat_map<string, deque<long long>> cpu_percent = {
 			{"total", {}},
+			{"kernel", {}},
 			{"user", {}},
-			{"nice", {}},
+			{"dpc", {}},
+			{"interrupt", {}},
 			{"system", {}},
 			{"idle", {}},
-			{"iowait", {}},
-			{"irq", {}},
-			{"softirq", {}},
-			{"steal", {}},
-			{"guest", {}},
-			{"guest_nice", {}}
 		};
 		vector<deque<long long>> core_percent;
 		vector<deque<long long>> temp;

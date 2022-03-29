@@ -95,14 +95,13 @@ namespace Term {
 			if (initialized) {
 				
 				DWORD out_consoleMode = out_saved_mode;
-				out_consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+				out_consoleMode |= (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN);
 				SetConsoleMode(handleOut, out_consoleMode);
 				SetConsoleOutputCP(65001);
 
 				DWORD in_consoleMode = 0;
-				//SetConsoleMode(handleIn, in_consoleMode);
-				//in_consoleMode = ~ENABLE_ECHO_INPUT | ~ENABLE_LINE_INPUT | ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT;
 				in_consoleMode = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_INSERT_MODE | ENABLE_EXTENDED_FLAGS;
+				in_consoleMode &= ~ENABLE_ECHO_INPUT;
 				SetConsoleMode(handleIn, in_consoleMode);
 
 				//? Disable stream sync
@@ -125,10 +124,14 @@ namespace Term {
 		if (initialized) {
 			HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
 			HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
+			
+			cout << clear << Fx::reset << normal_screen << show_cursor << flush;
+			
 			SetConsoleMode(handleOut, out_saved_mode);
 			SetConsoleMode(handleIn, in_saved_mode);
 			
-			cout << clear << Fx::reset << normal_screen << show_cursor << flush;
+			
+			//cout << Fx::reset << clear << normal_screen << show_cursor << flush;
 			initialized = false;
 		}
 	}

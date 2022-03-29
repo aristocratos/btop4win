@@ -118,7 +118,7 @@ namespace Input {
 				if (Key_escapes.contains(iRec.Event.KeyEvent.wVirtualKeyCode)) {
 					key = Key_escapes.at(iRec.Event.KeyEvent.wVirtualKeyCode);
 
-					if (key == "tab" and iRec.Event.KeyEvent.dwControlKeyState == SHIFT_PRESSED)
+					if (key == "tab" and (iRec.Event.KeyEvent.dwControlKeyState & SHIFT_PRESSED))
 						key = "shift_tab";
 				}
 				else if (iRec.Event.KeyEvent.bKeyDown) {

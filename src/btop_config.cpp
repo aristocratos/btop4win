@@ -185,7 +185,7 @@ namespace Config {
 	unordered_flat_map<string, string> strings = {
 		{"color_theme", "Default"},
 		{"shown_boxes", "cpu mem net proc"},
-		{"graph_symbol", "braille"},
+		{"graph_symbol", "tty"},
 		{"presets", "cpu:1:default,proc:0:default cpu:0:default,mem:0:default,net:0:default cpu:0:block,net:0:tty"},
 		{"graph_symbol_cpu", "default"},
 		{"graph_symbol_mem", "default"},
@@ -213,7 +213,7 @@ namespace Config {
 	unordered_flat_map<string, bool> bools = {
 		{"theme_background", true},
 		{"truecolor", true},
-		{"rounded_corners", true},
+		{"rounded_corners", false},
 		{"proc_reversed", false},
 		{"proc_tree", false},
 		{"proc_colors", true},
