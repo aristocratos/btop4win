@@ -691,8 +691,8 @@ namespace Mem {
 	string draw(const mem_info& mem, const bool force_redraw, const bool data_same) {
 		if (Runner::stopping) return "";
 		if (force_redraw) redraw = true;
-		auto& show_swap = Config::getB("show_swap");
-		auto& swap_disk = Config::getB("swap_disk");
+		auto& show_swap = Config::getB("show_page");
+		auto& swap_disk = Config::getB("page_disk");
 		auto& show_disks = Config::getB("show_disks");
 		auto& show_io_stat = Config::getB("show_io_stat");
 		auto& io_mode = Config::getB("io_mode");
@@ -787,7 +787,7 @@ namespace Mem {
 
 		}
 
-		//? Mem and swap
+		//? Memory
 		int cx = 1, cy = 1;
 		string divider = (graph_height > 0 ? Mv::l(2) + Theme::c("mem_box") + Symbols::div_left + Theme::c("div_line") + Symbols::h_line * (mem_width - 1)
 						+ (show_disks ? "" : Theme::c("mem_box")) + Symbols::div_right + Mv::l(mem_width - 1) + Theme::c("main_fg") : "");
@@ -800,18 +800,18 @@ namespace Mem {
 		for (auto name : comb_names) {
 			if (cy > height - 4) break;
 			string title;
-			if (name == "swap_used") {
+			if (name == "page_used") {
 				if (cy > height - 5) break;
 				if (height - cy > 6) {
 					if (graph_height > 0) out += Mv::to(y+1+cy, x+1+cx) + divider;
 					cy += 1;
 				}
-				out += Mv::to(y+1+cy, x+1+cx) + Theme::c("title") + Fx::b + "Swap:" + rjust(floating_humanizer(mem.stats.at("swap_total")), mem_width - 8)
+				out += Mv::to(y+1+cy, x+1+cx) + Theme::c("title") + Fx::b + "Page:" + rjust(floating_humanizer(mem.stats.at("page_total")), mem_width - 8)
 					+ Theme::c("main_fg") + Fx::ub;
 				cy += 1;
 				title = "Used";
 			}
-			else if (name == "swap_free")
+			else if (name == "page_free")
 				title = "Free";
 
 			if (title.empty()) title = capitalize(name);
@@ -1576,7 +1576,7 @@ namespace Draw {
 		if (Mem::shown) {
 			using namespace Mem;
 			auto& show_disks = Config::getB("show_disks");
-			auto& swap_disk = Config::getB("swap_disk");
+			auto& swap_disk = Config::getB("page_disk");
 			auto& mem_graphs = Config::getB("mem_graphs");
 
 			width = round((double)Term::width * (Proc::shown ? width_p : 100) / 100);

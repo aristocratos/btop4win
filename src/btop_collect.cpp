@@ -16,33 +16,25 @@ indent = tab
 tab-size = 4
 */
 
-#pragma warning (disable : 4455)
-
 #include <fstream>
 #include <ranges>
 #include <cmath>
 #include <numeric>
 
-#define _WIN32_WINNT  0x0501
+#define _WIN32_WINNT 0x0600
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <windows.h>
-#include <psapi.h>
-#pragma comment( lib, "psapi.lib" )
+
 #include <winreg.h>
 #pragma comment( lib, "Advapi32.lib" )
 #include <winternl.h>
 #pragma comment( lib, "ntdll.lib" )
-
-//typedef struct _SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION {
-//	LARGE_INTEGER IdleTime;
-//	LARGE_INTEGER KernelTime;
-//	LARGE_INTEGER UserTime;
-//	LARGE_INTEGER DpcTime;
-//	LARGE_INTEGER InterruptTime;
-//	ULONG InterruptCount;
-//} SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, * PSYSTEM_PROCESSOR_PERFORMANCE_INFORMATION;
+#include <Pdh.h>
+#pragma comment( lib, "Pdh.lib" )
+#include <powerbase.h>
+#pragma comment( lib, "PowrProf.lib")
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -89,6 +81,62 @@ namespace Cpu {
 
 namespace Mem {
 	double old_uptime;
+}
+
+namespace Cpu {
+
+	// Code for load average comes from psutils calculation
+	// see https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/wmi.c
+
+	const double LAVG_1F = 0.9200444146293232478931553241;
+	const double LAVG_5F = 0.9834714538216174894737477501;
+	const double LAVG_15F = 0.9944598480048967508795473394;
+	double load_avg_1m = 0.0;
+	double load_avg_5m = 0.0;
+	double load_avg_15m = 0.0;
+
+	void CALLBACK LoadAvgCallback(PVOID hCounter, BOOLEAN timedOut) {
+		PDH_FMT_COUNTERVALUE displayValue;
+		double currentLoad;
+		
+		if (PdhGetFormattedCounterValue((PDH_HCOUNTER)hCounter, PDH_FMT_DOUBLE, 0, &displayValue) != ERROR_SUCCESS) {
+			return;
+		}
+		currentLoad = displayValue.doubleValue;
+
+		load_avg_1m = load_avg_1m * LAVG_1F + currentLoad * (1.0 - LAVG_1F);
+		load_avg_5m = load_avg_5m * LAVG_5F + currentLoad * (1.0 - LAVG_5F);
+		load_avg_15m = load_avg_15m * LAVG_15F + currentLoad * (1.0 - LAVG_15F);
+	}
+
+	void loadAVG_init() {
+		HQUERY hQuery;
+		HCOUNTER hCounter;
+		HANDLE eventh;
+		HANDLE waitHandle;
+		DWORD sample_i = 5;
+	
+		if (PdhOpenQueryW(nullptr, 0, &hQuery) != ERROR_SUCCESS) {
+			throw std::runtime_error("Cpu::loadAVG_init() -> PdhOpenQueryW failed");
+		}
+
+		if (PdhAddEnglishCounterW(hQuery, L"\\System\\Processor Queue Length", 0, &hCounter) != ERROR_SUCCESS) {
+			throw std::runtime_error("Cpu::loadAVG_init() -> PdhAddEnglishCounterW failed");
+		}
+
+		eventh = CreateEventW(NULL, FALSE, FALSE, L"LoadUpdateEvent");
+		if (eventh == NULL) {
+			throw std::runtime_error("Cpu::loadAVG_init() -> CreateEventW failed");
+		}
+
+		if (PdhCollectQueryDataEx(hQuery, sample_i, eventh) != ERROR_SUCCESS) {
+			throw std::runtime_error("Cpu::loadAVG_init() -> PdhCollectQueryDataEx failed");
+		}
+
+		if (RegisterWaitForSingleObject(&waitHandle, eventh, (WAITORTIMERCALLBACK)LoadAvgCallback, (PVOID)hCounter, INFINITE, WT_EXECUTEDEFAULT) == 0) {
+			throw std::runtime_error("Cpu::loadAVG_init() -> RegisterWaitForSingleObject failed");
+		}
+	}
 }
 
 namespace Shared {
@@ -138,6 +186,8 @@ namespace Shared {
 			Cpu::available_sensors.push_back(sensor);
 		}
 		Cpu::core_mapping = Cpu::get_core_mapping();
+
+		Cpu::loadAVG_init();
 
 		//? Init for namespace Mem
 		Mem::old_uptime = system_uptime();
@@ -381,54 +431,45 @@ namespace Cpu {
 		//}
 	}
 
+	typedef struct _PROCESSOR_POWER_INFORMATION {
+		ULONG Number;
+		ULONG MaxMhz;
+		ULONG CurrentMhz;
+		ULONG MhzLimit;
+		ULONG MaxIdleState;
+		ULONG CurrentIdleState;
+	} PROCESSOR_POWER_INFORMATION, * PPROCESSOR_POWER_INFORMATION;
+
 	string get_cpuHz() {
-		static int failed = 0;
-		if (failed > 4) return ""s;
 		string cpuhz;
-		//try {
-		//	double hz = 0.0;
-		//	//? Try to get freq from /sys/devices/system/cpu/cpufreq/policy first (faster)
-		//	if (not freq_path.empty()) {
-		//		hz = stod(readfile(freq_path, "0.0")) / 1000;
-		//		if (hz <= 0.0 and ++failed >= 2)
-		//			freq_path.clear();
-		//	}
-		//	//? If freq from /sys failed or is missing try to use /proc/cpuinfo
-		//	if (hz <= 0.0) {
-		//		ifstream cpufreq(Shared::procPath / "cpuinfo");
-		//		if (cpufreq.good()) {
-		//			while (cpufreq.ignore(SSmax, '\n')) {
-		//				if (cpufreq.peek() == 'c') {
-		//					cpufreq.ignore(SSmax, ' ');
-		//					if (cpufreq.peek() == 'M') {
-		//						cpufreq.ignore(SSmax, ':');
-		//						cpufreq.ignore(1);
-		//						cpufreq >> hz;
-		//						break;
-		//					}
-		//				}
-		//			}
-		//		}
-		//	}
+		static bool failed = false;
+		if (failed) return "";
+		long hz = 0;
 
-		//	if (hz <= 1 or hz >= 1000000) throw std::runtime_error("Failed to read /sys/devices/system/cpu/cpufreq/policy and /proc/cpuinfo.");
+		vector<PROCESSOR_POWER_INFORMATION> ppinfo(Shared::coreCount);
 
-		//	if (hz >= 1000) {
-		//		if (hz >= 10000) cpuhz = to_string((int)round(hz / 1000)); // Future proof until we reach THz speeds :)
-		//		else cpuhz = to_string(round(hz / 100) / 10.0).substr(0, 3);
-		//		cpuhz += " GHz";
-		//	}
-		//	else if (hz > 0)
-		//		cpuhz = to_string((int)round(hz)) + " MHz";
+		if (CallNtPowerInformation(ProcessorInformation, nullptr, 0, &ppinfo[0], Shared::coreCount * sizeof(PROCESSOR_POWER_INFORMATION)) != 0) {
+			Logger::warning("Cpu::get_cpuHz() -> CallNtPowerInformation() failed");
+			failed = true;
+			return "";
+		}
 
-		//}
-		//catch (const std::exception& e) {
-		//	if (++failed < 5) return ""s;
-		//	else {
-		//		Logger::warning("get_cpuHZ() : " + (string)e.what());
-		//		return ""s;
-		//	}
-		//}
+		hz = ppinfo[0].CurrentMhz;
+
+		if (hz <= 1 or hz >= 1000000) {
+			Logger::warning("Cpu::get_cpuHz() -> Got invalid cpu mhz value");
+			return "";
+		}
+
+		if (hz >= 1000) {
+			if (hz >= 10000) cpuhz = to_string((int)round(hz / 1000)); // Future proof until we reach THz speeds :)
+			else cpuhz = to_string(round(hz / 100) / 10.0).substr(0, 3);
+			cpuhz += " GHz";
+		}
+		else if (hz > 0)
+			cpuhz = to_string((int)round(hz)) + " MHz";
+
+		
 
 		return cpuhz;
 	}
@@ -633,7 +674,6 @@ namespace Cpu {
 	auto collect(const bool no_update) -> cpu_info& {
 		if (Runner::stopping or (no_update and not current_cpu.cpu_percent.at("total").empty())) return current_cpu;
 		auto& cpu = current_cpu;
-
 	
 	//		//? Get cpu load averages from /proc/loadavg
 	//		cread.open(Shared::procPath / "loadavg");
@@ -641,11 +681,19 @@ namespace Cpu {
 	//			cread >> cpu.load_avg[0] >> cpu.load_avg[1] >> cpu.load_avg[2];
 	//		}
 	//		cread.close();
+		cpu.load_avg[0] = Cpu::load_avg_1m;
+		cpu.load_avg[1] = Cpu::load_avg_5m;
+		cpu.load_avg[2] = Cpu::load_avg_15m;
 
-		auto sppi = std::make_unique<_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION[]>(Shared::coreCount);
+		//auto sppi = std::make_unique<_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION[]>(Shared::coreCount);
+		vector<_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION> sppi(Shared::coreCount);
 		
-		if (not NT_SUCCESS(NtQuerySystemInformation(SystemProcessorPerformanceInformation, sppi.get(), Shared::coreCount * sizeof(_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION), nullptr))) {
-			throw std::runtime_error("Failed to get processor statistics!");
+		if (not NT_SUCCESS(
+				NtQuerySystemInformation(SystemProcessorPerformanceInformation,
+				&sppi[0],
+				Shared::coreCount * sizeof(_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION),
+				nullptr))){
+			throw std::runtime_error("Failed to run Cpu::collect() -> NtQuerySystemInformation()");
 		}
 
 		vector<long long> idle, kernel, systemt, user, interrupt, dpc, total;
@@ -654,11 +702,11 @@ namespace Cpu {
 
 		//? Usage for each core
 		for (int i = 0; i < Shared::coreCount; i++) {
-			user.push_back(sppi.get()[i].UserTime.QuadPart);
-			idle.push_back(sppi.get()[i].IdleTime.QuadPart);
-			kernel.push_back(sppi.get()[i].KernelTime.QuadPart);
-			dpc.push_back(sppi.get()[i].Reserved1[0].QuadPart);
-			interrupt.push_back(sppi.get()[i].Reserved1[1].QuadPart);
+			user.push_back(sppi[i].UserTime.QuadPart);
+			idle.push_back(sppi[i].IdleTime.QuadPart);
+			kernel.push_back(sppi[i].KernelTime.QuadPart);
+			dpc.push_back(sppi[i].Reserved1[0].QuadPart);
+			interrupt.push_back(sppi[i].Reserved1[1].QuadPart);
 			
 			systemt.push_back(kernel.back() - idle.back());
 
@@ -710,8 +758,8 @@ namespace Cpu {
 			ii++;
 		}
 
-	//	if (Config::getB("show_cpu_freq"))
-	//		cpuHz = get_cpuHz();
+		if (Config::getB("show_cpu_freq"))
+			cpuHz = get_cpuHz();
 
 	//	if (Config::getB("check_temp") and got_sensors)
 	//		update_sensors();
@@ -738,26 +786,27 @@ namespace Mem {
 	auto collect(const bool no_update) -> mem_info& {
 		if (Runner::stopping or (no_update and not current_mem.percent.at("used").empty())) return current_mem;
 		
-		auto& show_swap = Config::getB("show_swap");
-		auto& swap_disk = Config::getB("swap_disk");
+		auto& show_swap = Config::getB("show_page");
+		auto& swap_disk = Config::getB("page_disk");
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
 
-		static PERFORMANCE_INFORMATION perfinfo;
-		static DWORD perfsize = sizeof(perfinfo);
-		GetPerformanceInfo(&perfinfo, perfsize);
-
-		totalMem = static_cast<int64_t>(perfinfo.PhysicalTotal * Shared::pageSize);
-
+		static MEMORYSTATUSEX memstat;
+		memstat.dwLength = sizeof(memstat);
 		
-		mem.stats.at("available") = static_cast<int64_t>(perfinfo.PhysicalAvailable * Shared::pageSize);
-		mem.stats.at("used") = totalMem - mem.stats.at("available");
-		mem.stats.at("cached") = static_cast<int64_t>(perfinfo.SystemCache * Shared::pageSize);
+		if (GlobalMemoryStatusEx(&memstat) == 0) {
+			throw std::runtime_error("Failed to run Mem::collect() -> GlobalMemoryStatusEx()");
+		}
+
+		totalMem = static_cast<int64_t>(memstat.ullTotalPhys);
+		mem.stats.at("available") = static_cast<int64_t>(memstat.ullAvailPhys);
+		mem.stats.at("used") = totalMem * memstat.dwMemoryLoad / 100;
+		mem.stats.at("virtual") = static_cast<int64_t>(memstat.ullTotalVirtual) - static_cast<int64_t>(memstat.ullAvailVirtual);
 		mem.stats.at("free") = totalMem - mem.stats.at("used");
-		
-		mem.stats.at("swap_total") = static_cast<int64_t>(perfinfo.CommitLimit * Shared::pageSize) - totalMem;
-		mem.stats.at("swap_used") = static_cast<int64_t>(perfinfo.CommitTotal * Shared::pageSize) - totalMem;
-		mem.stats.at("swap_free") = mem.stats.at("swap_total") - mem.stats.at("swap_used");
+
+		mem.stats.at("page_total") = static_cast<int64_t>(memstat.ullTotalPageFile) - totalMem;
+		mem.stats.at("page_free") = static_cast<int64_t>(memstat.ullAvailPageFile);
+		mem.stats.at("page_used") = mem.stats.at("page_total") - mem.stats.at("page_free");
 
 		//? Calculate percentages
 		for (const auto& name : mem_names) {
@@ -765,9 +814,9 @@ namespace Mem {
 			while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
 		}
 
-		if (show_swap and mem.stats.at("swap_total") > 0) {
+		if (show_swap and mem.stats.at("page_total") > 0) {
 			for (const auto& name : swap_names) {
-				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("swap_total")));
+				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("page_total")));
 				while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
 			}
 			has_swap = true;

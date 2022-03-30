@@ -16,7 +16,7 @@ indent = tab
 tab-size = 4
 */
 
-#pragma warning (disable : 4455)
+#pragma warning (disable : 4455 4244 6305 26819 26495)
 
 #include <csignal>
 #include <exception>

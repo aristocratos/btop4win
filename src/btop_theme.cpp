@@ -278,6 +278,14 @@ namespace Theme {
 				colors["graph_text"] = colors.at("inactive_fg");
 				rgbs["graph_text"] = rgbs.at("inactive_fg");
 			}
+			if (not colors.contains("virtual_start")) {
+				colors["virtual_start"] = colors.at("cached_start");
+				colors["virtual_mid"] = colors.at("cached_mid");
+				colors["virtual_end"] = colors.at("cached_end");
+				rgbs["virtual_start"] = rgbs.at("cached_start");
+				rgbs["virtual_mid"] = rgbs.at("cached_mid");
+				rgbs["virtual_end"] = rgbs.at("cached_end");
+			}
 		}
 
 		//* Generate color gradients from two or three colors, 101 values indexed 0-100

@@ -143,9 +143,9 @@ namespace Config {
 
 		{"mem_below_net",		"#* Show mem box below net box instead of above."},
 
-		{"show_swap", 			"#* If swap memory should be shown in memory box."},
+		{"show_page", 			"#* If page memory should be shown in memory box."},
 
-		{"swap_disk", 			"#* Show swap as a disk, ignores show_swap value above, inserts itself after first disk."},
+		{"page_disk", 			"#* Show page memory as a disk, ignores show_page value above, inserts itself after first disk."},
 
 		{"show_disks", 			"#* If mem box should be split to also show disks info."},
 
@@ -232,8 +232,8 @@ namespace Config {
 		{"background_update", true},
 		{"mem_graphs", true},
 		{"mem_below_net", false},
-		{"show_swap", true},
-		{"swap_disk", true},
+		{"show_page", true},
+		{"page_disk", true},
 		{"show_disks", true},
 		{"only_physical", true},
 		{"use_fstab", true},
@@ -255,7 +255,7 @@ namespace Config {
 	unordered_flat_map<string, bool> boolsTmp;
 
 	unordered_flat_map<string, int> ints = {
-		{"update_ms", 2000},
+		{"update_ms", 1500},
 		{"net_download", 100},
 		{"net_upload", 100},
 		{"detailed_pid", 0},

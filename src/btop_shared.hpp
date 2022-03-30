@@ -120,8 +120,8 @@ namespace Mem {
 	extern string box;
 	extern int x, y, width, height, min_width, min_height;
 	extern bool has_swap, shown, redraw;
-	const array<string, 4> mem_names = {"used", "available", "cached", "free"};
-	const array<string, 2> swap_names = {"swap_used", "swap_free"};
+	const array<string, 4> mem_names = {"used", "available", "virtual", "free"};
+	const array<string, 2> swap_names = {"page_used", "page_free"};
 	extern int disk_ios;
 	extern int64_t totalMem;
 
@@ -139,17 +139,14 @@ namespace Mem {
 
 	struct mem_info {
 		unordered_flat_map<string, uint64_t> stats =
-			{{"used", 0}, {"available", 0}, {"cached", 0}, {"free", 0},
-			{"swap_total", 0}, {"swap_used", 0}, {"swap_free", 0}};
+			{{"used", 0}, {"available", 0}, {"virtual", 0}, {"free", 0},
+			{"page_total", 0}, {"page_used", 0}, {"page_free", 0}};
 		unordered_flat_map<string, deque<long long>> percent =
-			{{"used", {}}, {"available", {}}, {"cached", {}}, {"free", {}},
-			{"swap_total", {}}, {"swap_used", {}}, {"swap_free", {}}};
+			{{"used", {}}, {"available", {}}, {"virtual", {}}, {"free", {}},
+			{"page_total", {}}, {"page_used", {}}, {"page_free", {}}};
 		unordered_flat_map<string, disk_info> disks;
 		vector<string> disks_order;
 	};
-
-	//?* Get total system memory
-	uint64_t get_totalMem();
 
 	//* Collect mem & disks stats
 	auto collect(const bool no_update=false) -> mem_info&;
