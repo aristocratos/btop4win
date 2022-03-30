@@ -35,6 +35,9 @@ tab-size = 4
 #pragma comment( lib, "Pdh.lib" )
 #include <powerbase.h>
 #pragma comment( lib, "PowrProf.lib")
+#include <wtsapi32.h>
+#pragma comment( lib, "Wtsapi32.lib")
+#include <atlstr.h>
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -95,6 +98,12 @@ namespace Cpu {
 	double load_avg_5m = 0.0;
 	double load_avg_15m = 0.0;
 
+	HQUERY hQuery;
+	HCOUNTER hCounter;
+	HANDLE eventh;
+	HANDLE waitHandle;
+	DWORD sample_i = 5;
+
 	void CALLBACK LoadAvgCallback(PVOID hCounter, BOOLEAN timedOut) {
 		PDH_FMT_COUNTERVALUE displayValue;
 		double currentLoad;
@@ -110,12 +119,6 @@ namespace Cpu {
 	}
 
 	void loadAVG_init() {
-		HQUERY hQuery;
-		HCOUNTER hCounter;
-		HANDLE eventh;
-		HANDLE waitHandle;
-		DWORD sample_i = 5;
-	
 		if (PdhOpenQueryW(nullptr, 0, &hQuery) != ERROR_SUCCESS) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> PdhOpenQueryW failed");
 		}
@@ -155,8 +158,7 @@ namespace Shared {
 
 		coreCount = sysinfo.dwNumberOfProcessors;
 		if (coreCount < 1) {
-			coreCount = 1;
-			Logger::warning("Could not determine number of cores, defaulting to 1.");
+			throw std::runtime_error("Could not determine number of cores!");
 		}
 
 		pageSize = sysinfo.dwPageSize;
@@ -187,7 +189,7 @@ namespace Shared {
 		}
 		Cpu::core_mapping = Cpu::get_core_mapping();
 
-		Cpu::loadAVG_init();
+		std::thread(Cpu::loadAVG_init).detach();
 
 		//? Init for namespace Mem
 		Mem::old_uptime = system_uptime();
@@ -225,8 +227,7 @@ namespace Cpu {
 			wchar_t cpuName[255];
 			DWORD BufSize = sizeof(cpuName);
 			if (RegQueryValueEx(hKey, L"ProcessorNameString", nullptr, nullptr, (LPBYTE)cpuName, &BufSize) == ERROR_SUCCESS) {
-				std::wstring wbuf(cpuName);
-				name = string(wbuf.begin(), wbuf.end());
+				name = string(CW2A(cpuName));
 			}
 		}
 
@@ -441,11 +442,8 @@ namespace Cpu {
 	} PROCESSOR_POWER_INFORMATION, * PPROCESSOR_POWER_INFORMATION;
 
 	string get_cpuHz() {
-		string cpuhz;
 		static bool failed = false;
 		if (failed) return "";
-		long hz = 0;
-
 		vector<PROCESSOR_POWER_INFORMATION> ppinfo(Shared::coreCount);
 
 		if (CallNtPowerInformation(ProcessorInformation, nullptr, 0, &ppinfo[0], Shared::coreCount * sizeof(PROCESSOR_POWER_INFORMATION)) != 0) {
@@ -454,22 +452,22 @@ namespace Cpu {
 			return "";
 		}
 
-		hz = ppinfo[0].CurrentMhz;
+		long hz = ppinfo[0].CurrentMhz;
 
 		if (hz <= 1 or hz >= 1000000) {
 			Logger::warning("Cpu::get_cpuHz() -> Got invalid cpu mhz value");
+			failed = true;
 			return "";
 		}
 
+		string cpuhz;
 		if (hz >= 1000) {
-			if (hz >= 10000) cpuhz = to_string((int)round(hz / 1000)); // Future proof until we reach THz speeds :)
+			if (hz >= 10000) cpuhz = to_string((int)round(hz / 1000));
 			else cpuhz = to_string(round(hz / 100) / 10.0).substr(0, 3);
 			cpuhz += " GHz";
 		}
 		else if (hz > 0)
 			cpuhz = to_string((int)round(hz)) + " MHz";
-
-		
 
 		return cpuhz;
 	}
@@ -675,19 +673,11 @@ namespace Cpu {
 		if (Runner::stopping or (no_update and not current_cpu.cpu_percent.at("total").empty())) return current_cpu;
 		auto& cpu = current_cpu;
 	
-	//		//? Get cpu load averages from /proc/loadavg
-	//		cread.open(Shared::procPath / "loadavg");
-	//		if (cread.good()) {
-	//			cread >> cpu.load_avg[0] >> cpu.load_avg[1] >> cpu.load_avg[2];
-	//		}
-	//		cread.close();
 		cpu.load_avg[0] = Cpu::load_avg_1m;
 		cpu.load_avg[1] = Cpu::load_avg_5m;
 		cpu.load_avg[2] = Cpu::load_avg_15m;
 
-		//auto sppi = std::make_unique<_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION[]>(Shared::coreCount);
 		vector<_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION> sppi(Shared::coreCount);
-		
 		if (not NT_SUCCESS(
 				NtQuerySystemInformation(SystemProcessorPerformanceInformation,
 				&sppi[0],
@@ -727,20 +717,15 @@ namespace Cpu {
 
 		}
 
-		//const array<string, 6> time_names = { "kernel", "user", "dpc", "interrupt", "system", "idle" };
-		
 		vector<long long> times;
 		for (auto& v : { kernel, user, dpc, interrupt, systemt, idle}) {
 			times.push_back(std::accumulate(v.cbegin(), v.cend(), 0));
 		}
 		totals = times.at(0) + times.at(1) + times.at(2) + times.at(3);
-		//idles = times.at(2) + times.at(3) + times.at(5);
 		
 		
 		const long long calc_totals = max(1ll, totals - cpu_old.at("totals"));
-		//const long long calc_idles = max(1ll, idles - cpu_old.at("idles"));
 		cpu_old.at("totals") = totals;
-		//cpu_old.at("idles") = idles;
 
 		//? Total usage of cpu
 		cpu.cpu_percent.at("total").push_back(clamp(cpu_total / Shared::coreCount, 0ll, 100ll));
@@ -1407,41 +1392,46 @@ namespace Proc {
 		//}
 	}
 
+	class WTSPIwrap {
+	public:
+		WTS_PROCESS_INFO_EXW* WPI = nullptr;
+		WTSPIwrap() { ; }
+		auto operator()() { return WPI; }
+		~WTSPIwrap() { WTSFreeMemory(WPI); }
+	};
+
 	//* Collects and sorts process information from /proc
 	auto collect(const bool no_update) -> vector<proc_info>& {
-		return current_procs;
-	//	const auto& sorting = Config::getS("proc_sorting");
-	//	const auto& reverse = Config::getB("proc_reversed");
-	//	const auto& filter = Config::getS("proc_filter");
-	//	const auto& per_core = Config::getB("proc_per_core");
-	//	const auto& tree = Config::getB("proc_tree");
-	//	const auto& show_detailed = Config::getB("show_detailed");
-	//	const size_t detailed_pid = Config::getI("detailed_pid");
-	//	bool should_filter = current_filter != filter;
-	//	if (should_filter) current_filter = filter;
-	//	const bool sorted_change = (sorting != current_sort or reverse != current_rev or should_filter);
-	//	if (sorted_change) {
-	//		current_sort = sorting;
-	//		current_rev = reverse;
-	//	}
-	//	ifstream pread;
-	//	string long_string;
-	//	string short_str;
+		const auto& sorting = Config::getS("proc_sorting");
+		const auto& reverse = Config::getB("proc_reversed");
+		const auto& filter = Config::getS("proc_filter");
+		const auto& per_core = Config::getB("proc_per_core");
+		const auto& tree = Config::getB("proc_tree");
+		const auto& show_detailed = Config::getB("show_detailed");
+		const size_t detailed_pid = Config::getI("detailed_pid");
+		bool should_filter = current_filter != filter;
+		if (should_filter) current_filter = filter;
+		const bool sorted_change = (sorting != current_sort or reverse != current_rev or should_filter);
+		if (sorted_change) {
+			current_sort = sorting;
+			current_rev = reverse;
+		}
 
-	//	const double uptime = system_uptime();
+		const double uptime = system_uptime();
 
-	//	const int cmult = (per_core) ? Shared::coreCount : 1;
-	//	bool got_detailed = false;
+		const int cmult = (per_core) ? Shared::coreCount : 1;
+		bool got_detailed = false;
 
-	//	//* Use pids from last update if only changing filter, sorting or tree options
-	//	if (no_update and not current_procs.empty()) {
-	//		if (show_detailed and detailed_pid != detailed.last_pid) _collect_details(detailed_pid, round(uptime), current_procs);
-	//	}
-	//	//* ---------------------------------------------Collection start----------------------------------------------
-	//	else {
-	//		should_filter = true;
+		//* Use pids from last update if only changing filter, sorting or tree options
+		if (no_update and not current_procs.empty()) {
+			if (show_detailed and detailed_pid != detailed.last_pid) _collect_details(detailed_pid, round(uptime), current_procs);
+		}
+		//* ---------------------------------------------Collection start----------------------------------------------
+		else {
+			should_filter = true;
 
-	//		auto totalMem = Mem::get_totalMem();
+			auto totalMem = Mem::totalMem;
+
 	//		int totalMem_len = to_string(totalMem >> 10).size();
 
 	//		//? Update uid_user map if /etc/passwd changed since last run
@@ -1475,88 +1465,61 @@ namespace Proc {
 	//		else throw std::runtime_error("Failure to read /proc/stat");
 	//		pread.close();
 
-	//		//? Iterate over all pids in /proc
-	//		vector<size_t> found;
-	//		for (const auto& d: fs::directory_iterator(Shared::procPath)) {
-	//			if (Runner::stopping)
-	//				return current_procs;
-	//			if (pread.is_open()) pread.close();
+			//? Iterate over all pids in /proc
+			vector<size_t> found;
+			DWORD pCount = 0;
+			DWORD pLevel = 1;
+			WTSPIwrap pinfo;
+			if (not WTSEnumerateProcessesExW(0, &pLevel, WTS_ANY_SESSION, (LPWSTR*)&pinfo.WPI, &pCount)) {
+				throw std::runtime_error("Proc::collect() -> WTSEnumerateProcessesExW failed");
+			}
 
-	//			const string pid_str = d.path().filename();
-	//			if (not isdigit(pid_str[0])) continue;
+			for (auto i = 0; i < pCount; i++) {
+				auto& process = pinfo.WPI[i];
+				if (process.ProcessId == 0) continue;
+			
+				if (Runner::stopping)
+					return current_procs;
+				
+				const size_t pid = process.ProcessId;
+				found.push_back(pid);
 
-	//			const size_t pid = stoul(pid_str);
-	//			found.push_back(pid);
+				//? Check if pid already exists in current_procs
+				auto find_old = rng::find(current_procs, pid, &proc_info::pid);
+				bool no_cache = false;
+				if (find_old == current_procs.end()) {
+					current_procs.push_back({pid});
+					find_old = current_procs.end() - 1;
+					no_cache = true;
+				}
 
-	//			//? Check if pid already exists in current_procs
-	//			auto find_old = rng::find(current_procs, pid, &proc_info::pid);
-	//			bool no_cache = false;
-	//			if (find_old == current_procs.end()) {
-	//				current_procs.push_back({pid});
-	//				find_old = current_procs.end() - 1;
-	//				no_cache = true;
-	//			}
+				auto& new_proc = *find_old;
 
-	//			auto& new_proc = *find_old;
+				//? Get program name, command and username
+				if (no_cache) {
+					new_proc.name = string(CW2A(process.pProcessName));
+					
 
-	//			//? Get program name, command and username
-	//			if (no_cache) {
-	//				pread.open(d.path() / "comm");
-	//				if (not pread.good()) continue;
-	//				getline(pread, new_proc.name);
-	//				pread.close();
-	//				//? Check for whitespace characters in name and set offset to get correct fields from stat file
-	//				new_proc.name_offset = rng::count(new_proc.name, ' ');
+					//new_proc.cmd = "?";
+					if (new_proc.cmd.size() > 1000) {
+						new_proc.cmd.resize(1000);
+						break;
+					}
+					
+					//LPWSTR Name;
+					//LPWSTR RefDomain;
+					//SID_NAME_USE peUse;
+					//DWORD mSize = MAX_PATH;
 
-	//				pread.open(d.path() / "cmdline");
-	//				if (not pread.good()) continue;
-	//				long_string.clear();
-	//				while(getline(pread, long_string, '\0')) {
-	//					new_proc.cmd += long_string + ' ';
-	//					if (new_proc.cmd.size() > 1000) {
-	//						new_proc.cmd.resize(1000);
-	//						break;
-	//					}
-	//				}
-	//				pread.close();
-	//				if (not new_proc.cmd.empty()) new_proc.cmd.pop_back();
+					//if (LookupAccountSidW(nullptr, process.pUserSid, Name, &mSize, RefDomain, &mSize, &peUse)) {
+					//	new_proc.user = string(CW2A(Name));
+					//}
+					new_proc.user = "unknown";
 
-	//				pread.open(d.path() / "status");
-	//				if (not pread.good()) continue;
-	//				string uid;
-	//				string line;
-	//				while (pread.good()) {
-	//					getline(pread, line, ':');
-	//					if (line == "Uid") {
-	//						pread.ignore();
-	//						getline(pread, uid, '\t');
-	//						break;
-	//					} else {
-	//						pread.ignore(SSmax, '\n');
-	//					}
-	//				}
-	//				pread.close();
-	//				if (uid_user.contains(uid)) {
-	//					new_proc.user = uid_user.at(uid);
-	//				}
-	//				else {
-	//				#if !(defined(STATIC_BUILD) && defined(__GLIBC__))
-	//					try {
-	//						struct passwd* udet;
-	//						udet = getpwuid(stoi(uid));
-	//						if (udet != NULL and udet->pw_name != NULL) {
-	//							new_proc.user = string(udet->pw_name);
-	//						}
-	//						else {
-	//							new_proc.user = uid;
-	//						}
-	//					}
-	//					catch (...) { new_proc.user = uid; }
-	//				#else
-	//					new_proc.user = uid;
-	//				#endif
-	//				}
-	//			}
+				}
+
+				new_proc.mem = process.WorkingSetSize;
+				
 
 	//			//? Parse /proc/[pid]/stat
 	//			pread.open(d.path() / "stat");
@@ -1645,9 +1608,9 @@ namespace Proc {
 	//			}
 	//		}
 
-	//		//? Clear dead processes from current_procs
-	//		auto eraser = rng::remove_if(current_procs, [&](const auto& element){ return not v_contains(found, element.pid); });
-	//		current_procs.erase(eraser.begin(), eraser.end());
+			//? Clear dead processes from current_procs
+			auto eraser = rng::remove_if(current_procs, [&](const auto& element){ return not v_contains(found, element.pid); });
+			current_procs.erase(eraser.begin(), eraser.end());
 
 	//		//? Update the details info box for process if active
 	//		if (show_detailed and got_detailed) {
@@ -1656,115 +1619,115 @@ namespace Proc {
 	//		else if (show_detailed and not got_detailed and detailed.status != "Dead") {
 	//			detailed.status = "Dead";
 	//			redraw = true;
-	//		}
+			}
 
 	//		old_cputimes = cputimes;
-	//	}
-	//	//* ---------------------------------------------Collection done-----------------------------------------------
+		}
+		//* ---------------------------------------------Collection done-----------------------------------------------
 
-	//	//* Sort processes
-	//	if (sorted_change or not no_update) {
-	//		if (reverse) {
-	//			switch (v_index(sort_vector, sorting)) {
-	//				case 0: rng::stable_sort(current_procs, rng::less{}, &proc_info::pid); 		break;
-	//				case 1: rng::stable_sort(current_procs, rng::less{}, &proc_info::name);		break;
-	//				case 2: rng::stable_sort(current_procs, rng::less{}, &proc_info::cmd); 		break;
-	//				case 3: rng::stable_sort(current_procs, rng::less{}, &proc_info::threads); 	break;
-	//				case 4: rng::stable_sort(current_procs, rng::less{}, &proc_info::user); 	break;
-	//				case 5: rng::stable_sort(current_procs, rng::less{}, &proc_info::mem); 		break;
-	//				case 6: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_p);   	break;
-	//				case 7: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_c);   	break;
-	//			}
-	//		} else {
-	//			switch (v_index(sort_vector, sorting)) {
-	//					case 0: rng::stable_sort(current_procs, rng::greater{}, &proc_info::pid); 		break;
-	//					case 1: rng::stable_sort(current_procs, rng::greater{}, &proc_info::name);		break;
-	//					case 2: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cmd); 		break;
-	//					case 3: rng::stable_sort(current_procs, rng::greater{}, &proc_info::threads); 	break;
-	//					case 4: rng::stable_sort(current_procs, rng::greater{}, &proc_info::user); 	break;
-	//					case 5: rng::stable_sort(current_procs, rng::greater{}, &proc_info::mem); 		break;
-	//					case 6: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_p);   	break;
-	//					case 7: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_c);   	break;
-	//			}
-	//		}
+		//* Sort processes
+		if (sorted_change or not no_update) {
+			if (reverse) {
+				switch (v_index(sort_vector, sorting)) {
+					case 0: rng::stable_sort(current_procs, rng::less{}, &proc_info::pid); 		break;
+					case 1: rng::stable_sort(current_procs, rng::less{}, &proc_info::name);		break;
+					case 2: rng::stable_sort(current_procs, rng::less{}, &proc_info::cmd); 		break;
+					case 3: rng::stable_sort(current_procs, rng::less{}, &proc_info::threads); 	break;
+					case 4: rng::stable_sort(current_procs, rng::less{}, &proc_info::user); 	break;
+					case 5: rng::stable_sort(current_procs, rng::less{}, &proc_info::mem); 		break;
+					case 6: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_p);   	break;
+					case 7: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_c);   	break;
+				}
+			} else {
+				switch (v_index(sort_vector, sorting)) {
+						case 0: rng::stable_sort(current_procs, rng::greater{}, &proc_info::pid); 		break;
+						case 1: rng::stable_sort(current_procs, rng::greater{}, &proc_info::name);		break;
+						case 2: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cmd); 		break;
+						case 3: rng::stable_sort(current_procs, rng::greater{}, &proc_info::threads); 	break;
+						case 4: rng::stable_sort(current_procs, rng::greater{}, &proc_info::user); 	break;
+						case 5: rng::stable_sort(current_procs, rng::greater{}, &proc_info::mem); 		break;
+						case 6: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_p);   	break;
+						case 7: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_c);   	break;
+				}
+			}
 
-	//		//* When sorting with "cpu lazy" push processes over threshold cpu usage to the front regardless of cumulative usage
-	//		if (not tree and not reverse and sorting == "cpu lazy") {
-	//			double max = 10.0, target = 30.0;
-	//			for (size_t i = 0, x = 0, offset = 0; i < current_procs.size(); i++) {
-	//				if (i <= 5 and current_procs.at(i).cpu_p > max)
-	//					max = current_procs.at(i).cpu_p;
-	//				else if (i == 6)
-	//					target = (max > 30.0) ? max : 10.0;
-	//				if (i == offset and current_procs.at(i).cpu_p > 30.0)
-	//					offset++;
-	//				else if (current_procs.at(i).cpu_p > target) {
-	//					rotate(current_procs.begin() + offset, current_procs.begin() + i, current_procs.begin() + i + 1);
-	//					if (++x > 10) break;
-	//				}
-	//			}
-	//		}
-	//	}
+			//* When sorting with "cpu lazy" push processes over threshold cpu usage to the front regardless of cumulative usage
+			if (not tree and not reverse and sorting == "cpu lazy") {
+				double max = 10.0, target = 30.0;
+				for (size_t i = 0, x = 0, offset = 0; i < current_procs.size(); i++) {
+					if (i <= 5 and current_procs.at(i).cpu_p > max)
+						max = current_procs.at(i).cpu_p;
+					else if (i == 6)
+						target = (max > 30.0) ? max : 10.0;
+					if (i == offset and current_procs.at(i).cpu_p > 30.0)
+						offset++;
+					else if (current_procs.at(i).cpu_p > target) {
+						rotate(current_procs.begin() + offset, current_procs.begin() + i, current_procs.begin() + i + 1);
+						if (++x > 10) break;
+					}
+				}
+			}
+		}
 
-	//	//* Match filter if defined
-	//	if (should_filter) {
-	//		filter_found = 0;
-	//		for (auto& p : current_procs) {
-	//			if (not tree and not filter.empty()) {
-	//					if (not s_contains(to_string(p.pid), filter)
-	//					and not s_contains(p.name, filter)
-	//					and not s_contains(p.cmd, filter)
-	//					and not s_contains(p.user, filter)) {
-	//						p.filtered = true;
-	//						filter_found++;
-	//						}
-	//					else {
-	//						p.filtered = false;
-	//					}
-	//				}
-	//			else {
-	//				p.filtered = false;
-	//			}
-	//		}
-	//	}
+		//* Match filter if defined
+		if (should_filter) {
+			filter_found = 0;
+			for (auto& p : current_procs) {
+				if (not tree and not filter.empty()) {
+						if (not s_contains(to_string(p.pid), filter)
+						and not s_contains(p.name, filter)
+						and not s_contains(p.cmd, filter)
+						and not s_contains(p.user, filter)) {
+							p.filtered = true;
+							filter_found++;
+							}
+						else {
+							p.filtered = false;
+						}
+					}
+				else {
+					p.filtered = false;
+				}
+			}
+		}
 
-	//	//* Generate tree view if enabled
-	//	if (tree and (not no_update or should_filter or sorted_change)) {
-	//		if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
-	//			auto collapser = rng::find(current_procs, find_pid, &proc_info::pid);
-	//			if (collapser != current_procs.end()) {
-	//				if (collapse == expand) {
-	//					collapser->collapsed = not collapser->collapsed;
-	//				}
-	//				else if (collapse > -1) {
-	//					collapser->collapsed = true;
-	//				}
-	//				else if (expand > -1) {
-	//					collapser->collapsed = false;
-	//				}
-	//			}
-	//			collapse = expand = -1;
-	//		}
-	//		if (should_filter or not filter.empty()) filter_found = 0;
+		//* Generate tree view if enabled
+		//if (tree and (not no_update or should_filter or sorted_change)) {
+		//	if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
+		//		auto collapser = rng::find(current_procs, find_pid, &proc_info::pid);
+		//		if (collapser != current_procs.end()) {
+		//			if (collapse == expand) {
+		//				collapser->collapsed = not collapser->collapsed;
+		//			}
+		//			else if (collapse > -1) {
+		//				collapser->collapsed = true;
+		//			}
+		//			else if (expand > -1) {
+		//				collapser->collapsed = false;
+		//			}
+		//		}
+		//		collapse = expand = -1;
+		//	}
+		//	if (should_filter or not filter.empty()) filter_found = 0;
 
-	//		vector<std::reference_wrapper<proc_info>> tree_procs;
-	//		tree_procs.reserve(current_procs.size());
+		//	vector<std::reference_wrapper<proc_info>> tree_procs;
+		//	tree_procs.reserve(current_procs.size());
 
-	//		//? Stable sort to retain selected sorting among processes with the same parent
-	//		rng::stable_sort(current_procs, rng::less{}, &proc_info::ppid);
+		//	//? Stable sort to retain selected sorting among processes with the same parent
+		//	rng::stable_sort(current_procs, rng::less{}, &proc_info::ppid);
 
-	//		//? Start recursive iteration over processes with the lowest shared parent pids
-	//		for (auto& p : rng::equal_range(current_procs, current_procs.at(0).ppid, rng::less{}, &proc_info::ppid)) {
-	//			_tree_gen(p, current_procs, tree_procs, 0, false, filter, false, no_update, should_filter);
-	//		}
+		//	//? Start recursive iteration over processes with the lowest shared parent pids
+		//	for (auto& p : rng::equal_range(current_procs, current_procs.at(0).ppid, rng::less{}, &proc_info::ppid)) {
+		//		_tree_gen(p, current_procs, tree_procs, 0, false, filter, false, no_update, should_filter);
+		//	}
 
-	//		//? Final sort based on tree index
-	//		rng::stable_sort(current_procs, rng::less{}, &proc_info::tree_index);
-	//	}
+		//	//? Final sort based on tree index
+		//	rng::stable_sort(current_procs, rng::less{}, &proc_info::tree_index);
+		//}
 
-	//	numpids = (int)current_procs.size() - filter_found;
+		numpids = (int)current_procs.size() - filter_found;
 
-	//	return current_procs;
+		return current_procs;
 	}
 }
 

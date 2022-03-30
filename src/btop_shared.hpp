@@ -15,7 +15,7 @@
 indent = tab
 tab-size = 4
 */
-
+#pragma warning (disable : 4455 4244 6305 26819 26495)
 #pragma once
 
 #include <string>
@@ -228,7 +228,6 @@ namespace Proc {
 		string name = "", cmd = "";
 		string short_cmd = "";
 		size_t threads = 0;
-		int name_offset = 0;
 		string user = "";
 		uint64_t mem = 0;
 		double cpu_p = 0.0, cpu_c = 0.0;
