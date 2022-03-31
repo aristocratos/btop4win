@@ -16,19 +16,11 @@ indent = tab
 tab-size = 4
 */
 
-#include <csignal>
-#include <exception>
-#include <typeinfo>
-#include <clocale>
 #include <thread>
 #include <numeric>
 #include <ranges>
 #include <cmath>
 #include <iostream>
-#include <exception>
-#include <tuple>
-#include <regex>
-#include <chrono>
 #include <semaphore>
 
 #include <btop_shared.hpp>
@@ -224,21 +216,6 @@ void clean_quit(int sig) {
 
 void _exit_handler() {
 	clean_quit(-1);
-}
-
-void _signal_handler(const int sig) {
-	switch (sig) {
-		case SIGINT:
-			if (Runner::active) {
-				Global::should_quit = true;
-				Runner::stopping = true;
-				Input::interrupt = true;
-			}
-			else {
-				clean_quit(0);
-			}
-			break;
-	}
 }
 
 //* Manages secondary thread for collection and drawing of boxes
@@ -462,7 +439,7 @@ namespace Runner {
 			cout << Term::sync_start << (conf.overlay.empty()
 					? output
 					: (output.empty() ? "" : Fx::ub + Theme::c("inactive_fg") + Fx::uncolor(output)) + conf.overlay)
-				<< Term::sync_end << flush;
+				<< Term::hide_cursor << Term::sync_end << flush;
 		}
 		//* ----------------------------------------------- THREAD LOOP -----------------------------------------------
 		
@@ -627,9 +604,8 @@ int main(int argc, char **argv) {
 	Theme::updateThemes();
 	Theme::setTheme();
 
-	//? Setup signal handlers for CTRL-C, CTRL-Z, resume and terminal resize
+	//? Setup signal handler for exit
 	std::atexit(_exit_handler);
-	std::signal(SIGINT, _signal_handler);
 
 	//? Start runner thread
 	std::thread runner_thread(Runner::_runner);

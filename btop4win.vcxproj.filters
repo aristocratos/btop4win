@@ -68,6 +68,9 @@
     <ClInclude Include="src\btop_tools.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
@@ -75,5 +78,15 @@
     <None Include="Makefile" />
     <None Include="CHANGELOG.md" />
     <None Include="CODE_OF_CONDUCT.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="btop4win.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="Img\logo.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>

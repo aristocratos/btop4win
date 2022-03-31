@@ -147,6 +147,7 @@
   <ItemGroup>
     <ClInclude Include="include\robin_hood.h" />
     <ClInclude Include="include\widechar_width.hpp" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="src\btop_config.hpp" />
     <ClInclude Include="src\btop_draw.hpp" />
     <ClInclude Include="src\btop_input.hpp" />
@@ -161,6 +162,12 @@
     <None Include="CODE_OF_CONDUCT.md" />
     <None Include="Makefile" />
     <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="btop4win.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="Img\logo.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

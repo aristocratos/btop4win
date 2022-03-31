@@ -15,7 +15,7 @@
 indent = tab
 tab-size = 4
 */
-#pragma warning (disable : 4455 4244 6305 26495)
+#pragma warning (disable : 4455 4244 6305 26819)
 #pragma once
 
 #include <string>
@@ -30,7 +30,6 @@ tab-size = 4
 using std::string, std::vector, std::deque, robin_hood::unordered_flat_map, std::atomic, std::array, std::tuple;
 
 void term_resize(bool force=false);
-void banner_gen();
 
 extern void clean_quit(int sig);
 

@@ -21,7 +21,7 @@ tab-size = 4
 #include <cmath>
 #include <numeric>
 
-#define _WIN32_WINNT 0x0603
+#define _WIN32_WINNT 0x0600
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
@@ -1525,14 +1525,16 @@ namespace Proc {
 			HandleWrapper pSnap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
 
 			if (not pSnap.valid) {
-				throw std::runtime_error("Proc::collect() -> CreateToolhelp32Snapshot() failed!");
+				Logger::warning("Proc::collect() -> CreateToolhelp32Snapshot() failed!");
+				return current_procs;
 			}
 
 			PROCESSENTRY32 pe;
 			pe.dwSize = sizeof(PROCESSENTRY32);
 
 			if (not Process32First(pSnap(), &pe)) {
-				throw std::runtime_error("Proc::collect() -> Process32First() failed!");
+				Logger::warning("Proc::collect() -> Process32First() failed!");
+				return current_procs;
 			}
 
 			do {
@@ -1562,12 +1564,14 @@ namespace Proc {
 				//? Get program name, command and username
 				if (no_cache) {
 					new_proc.name = CW2A(pe.szExeFile);
-
-					//new_proc.cmd = "?";
+					
+					new_proc.cmd = new_proc.name;
 					if (new_proc.cmd.size() > 1000) {
 						new_proc.cmd.resize(1000);
 						break;
 					}
+
+					new_proc.name = new_proc.name.substr(0, new_proc.name.find_last_of('.'));
 					
 					/*SID_NAME_USE peUse;
 					DWORD cchName = 0;

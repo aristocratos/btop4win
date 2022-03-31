@@ -80,6 +80,7 @@ namespace Input {
 	unordered_flat_map<string, Mouse_loc> mouse_mappings;
 
 	deque<string> history(50, "");
+	int last_mouse_button = 0;
 	string old_filter;
 
 	bool poll(int timeout) {
@@ -135,12 +136,18 @@ namespace Input {
 			}
 			else if (iRec.EventType == MOUSE_EVENT) {
 				
-				string mouse_event;
-				if (iRec.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED and iRec.Event.MouseEvent.dwEventFlags == 0) {
-					mouse_event = "mouse_click";
+				if (iRec.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED
+				or (iRec.Event.MouseEvent.dwEventFlags == DOUBLE_CLICK and last_mouse_button == FROM_LEFT_1ST_BUTTON_PRESSED)) {
+					key = "mouse_click";
+					last_mouse_button = FROM_LEFT_1ST_BUTTON_PRESSED;
 				}
 				else if (iRec.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED) {
-					mouse_event = iRec.Event.MouseEvent.dwButtonState >> 24 == 0 ? "mouse_scroll_up" : "mouse_scroll_down";
+					key = iRec.Event.MouseEvent.dwButtonState >> 24 == 0 ? "mouse_scroll_up" : "mouse_scroll_down";
+				}
+				else if (iRec.Event.MouseEvent.dwButtonState == RIGHTMOST_BUTTON_PRESSED 
+				or (iRec.Event.MouseEvent.dwEventFlags == DOUBLE_CLICK and last_mouse_button == RIGHTMOST_BUTTON_PRESSED)) {
+					last_mouse_button = RIGHTMOST_BUTTON_PRESSED;
+					return "escape";
 				}
 				else {
 					return "";
@@ -149,18 +156,14 @@ namespace Input {
 				//Logger::debug(mouse_event);
 				
 				if (Config::getB("proc_filtering")) {
-					if (mouse_event == "mouse_click") return mouse_event;
+					if (key == "mouse_click") return key;
 					else return "";
 				}
 
 				//? Get column and line position of mouse and check for any actions mapped to current position
-				if (not mouse_event.empty()) {
+				if (not key.empty()) {
 					mouse_pos[0] = iRec.Event.MouseEvent.dwMousePosition.X + 1;
 					mouse_pos[1] = iRec.Event.MouseEvent.dwMousePosition.Y + 1;
-
-					//Logger::debug(to_string(mouse_pos[0]) + " | " + to_string(mouse_pos[1]));
-
-					key = mouse_event;
 
 					if (key == "mouse_click") {
 						const auto& [col, line] = mouse_pos;
