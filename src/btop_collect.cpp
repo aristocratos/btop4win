@@ -21,7 +21,7 @@ tab-size = 4
 #include <cmath>
 #include <numeric>
 
-#define _WIN32_WINNT 0x0600
+#define _WIN32_WINNT 0x0603
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
@@ -35,9 +35,8 @@ tab-size = 4
 #pragma comment( lib, "Pdh.lib" )
 #include <powerbase.h>
 #pragma comment( lib, "PowrProf.lib")
-#include <wtsapi32.h>
-#pragma comment( lib, "Wtsapi32.lib")
 #include <atlstr.h>
+#include <tlhelp32.h>
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -50,6 +49,61 @@ namespace rng = std::ranges;
 using namespace Tools;
 
 //? --------------------------------------------------- FUNCTIONS -----------------------------------------------------
+
+namespace Tools {
+	class HandleWrapper {
+	public:
+		HANDLE wHandle;
+		bool valid = false;
+		HandleWrapper() { ; }
+		HandleWrapper(HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE && wHandle != NULL); }
+		auto operator()() { return wHandle; }
+		~HandleWrapper() { CloseHandle(wHandle); }
+	};
+
+	//? Set security modes for better chance of collecting process information
+	//? Based on code from psutil
+	//? See: https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/security.c
+	void setWinDebug() {
+		HandleWrapper hToken{};
+		HANDLE thisProc = GetCurrentProcess();
+
+		if (not OpenProcessToken(thisProc, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken.wHandle)) {
+			if (GetLastError() == ERROR_NO_TOKEN) {
+				if (not ImpersonateSelf(SecurityImpersonation))
+					throw std::runtime_error("setWinDebug() -> ImpersonateSelf() failed with ID: " + to_string(GetLastError()));
+				if (not OpenProcessToken(thisProc, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken.wHandle))
+					throw std::runtime_error("setWinDebug() -> OpenProcessToken() failed with ID: " + to_string(GetLastError()));
+			}
+			else
+				throw std::runtime_error("setWinDebug() -> OpenProcessToken() failed with ID: " + to_string(GetLastError()));
+		}
+
+		TOKEN_PRIVILEGES tpriv;
+		TOKEN_PRIVILEGES old_tpriv;
+		LUID luid;
+		DWORD old_tprivSize = sizeof(TOKEN_PRIVILEGES);
+
+		if (not LookupPrivilegeValue(0, SE_DEBUG_NAME, &luid))
+			throw std::runtime_error("setWinDebug() -> LookupPrivilegeValue() failed with ID: " + to_string(GetLastError()));
+
+		tpriv.PrivilegeCount = 1;
+		tpriv.Privileges[0].Luid = luid;
+		tpriv.Privileges[0].Attributes = 0;
+
+		if (not AdjustTokenPrivileges(hToken(), FALSE, &tpriv, sizeof(TOKEN_PRIVILEGES), &old_tpriv, &old_tprivSize))
+			throw std::runtime_error("setWinDebug() -> AdjustTokenPrivileges() [get] failed with ID: " + to_string(GetLastError()));
+
+		old_tpriv.PrivilegeCount = 1;
+		old_tpriv.Privileges[0].Luid = luid;
+		old_tpriv.Privileges[0].Attributes |= (SE_PRIVILEGE_ENABLED);
+
+		if (not AdjustTokenPrivileges(hToken(), FALSE, &old_tpriv, old_tprivSize, 0, 0))
+			throw std::runtime_error("setWinDebug() -> AdjustTokenPrivileges() [set] failed with ID: " + to_string(GetLastError()));
+
+		RevertToSelf();
+	}
+}
 
 namespace Cpu {
 	vector<long long> core_old_totals;
@@ -195,6 +249,14 @@ namespace Shared {
 		Mem::old_uptime = system_uptime();
 		Mem::collect();
 
+		try {
+			setWinDebug();
+		}
+		catch (const std::exception& e) {
+			Logger::warning("Failed to set SE DEBUG mode for process!");
+			Logger::debug(e.what());
+		}
+
 	}
 
 }
@@ -205,7 +267,7 @@ namespace Cpu {
 	bool has_battery = true;
 	tuple<int, long, string> current_bat;
 
-	const array<string, 6> time_names = { "kernel", "user", "dpc", "interrupt", "system", "idle" };
+	const array<string, 6> time_names = { "kernel", "user", "dpc", "interrupt", "idle" };
 
 	unordered_flat_map<string, long long> cpu_old = {
 			{"total", 0},
@@ -213,7 +275,6 @@ namespace Cpu {
 			{"user", 0},
 			{"dpc", 0},
 			{"interrupt", 0},
-			{"system", 0},
 			{"idle", 0},
 			{"totals", 0},
 			{"idles", 0}
@@ -686,28 +747,27 @@ namespace Cpu {
 			throw std::runtime_error("Failed to run Cpu::collect() -> NtQuerySystemInformation()");
 		}
 
-		vector<long long> idle, kernel, systemt, user, interrupt, dpc, total;
-		long long idles, totals;
+		vector<long long> idle, kernel, user, interrupt, dpc, total;
+		long long totals;
 		long long cpu_total = 0;
 
 		//? Usage for each core
 		for (int i = 0; i < Shared::coreCount; i++) {
 			user.push_back(sppi[i].UserTime.QuadPart);
 			idle.push_back(sppi[i].IdleTime.QuadPart);
-			kernel.push_back(sppi[i].KernelTime.QuadPart);
+			kernel.push_back(sppi[i].KernelTime.QuadPart - idle.back());
 			dpc.push_back(sppi[i].Reserved1[0].QuadPart);
 			interrupt.push_back(sppi[i].Reserved1[1].QuadPart);
 			
-			systemt.push_back(kernel.back() - idle.back());
 
-			totals = idles = 0;
-			for (auto& v : { kernel, user }) totals += v.back();
-			for (auto& v : { idle, dpc, interrupt }) idles += v.back();
+			totals = 0;
+			for (auto& v : { kernel, user, dpc, interrupt, idle }) totals += v.back();
+			//for (auto& v : { idle, dpc, interrupt }) idles += v.back();
 
 			const long long calc_totals = max(0ll, totals - core_old_totals.at(i));
-			const long long calc_idles = max(0ll, idles - core_old_idles.at(i));
+			const long long calc_idles = max(0ll, idle.back() - core_old_idles.at(i));
 			core_old_totals.at(i) = totals;
-			core_old_idles.at(i) = idles;
+			core_old_idles.at(i) = idle.back();
 
 			cpu.core_percent.at(i).push_back(clamp((long long)round((double)(calc_totals - calc_idles) * 100 / calc_totals), 0ll, 100ll));
 			cpu_total += cpu.core_percent.at(i).back();
@@ -717,11 +777,14 @@ namespace Cpu {
 
 		}
 
+		//? Usage accumulated for total cpu usage
 		vector<long long> times;
-		for (auto& v : { kernel, user, dpc, interrupt, systemt, idle}) {
+		totals = 0;
+		for (auto& v : { kernel, user, dpc, interrupt, idle}) {
 			times.push_back(std::accumulate(v.cbegin(), v.cend(), 0));
+			totals += times.back();
 		}
-		totals = times.at(0) + times.at(1) + times.at(2) + times.at(3);
+		//totals = times.at(0) + times.at(1) + times.at(2) + times.at(3);
 		
 		
 		const long long calc_totals = max(1ll, totals - cpu_old.at("totals"));
@@ -1392,14 +1455,6 @@ namespace Proc {
 		//}
 	}
 
-	class WTSPIwrap {
-	public:
-		WTS_PROCESS_INFO_EXW* WPI = nullptr;
-		WTSPIwrap() { ; }
-		auto operator()() { return WPI; }
-		~WTSPIwrap() { WTSFreeMemory(WPI); }
-	};
-
 	//* Collects and sorts process information from /proc
 	auto collect(const bool no_update) -> vector<proc_info>& {
 		const auto& sorting = Config::getS("proc_sorting");
@@ -1466,22 +1521,31 @@ namespace Proc {
 	//		pread.close();
 
 			//? Iterate over all pids in /proc
-			vector<size_t> found;
-			DWORD pCount = 0;
-			DWORD pLevel = 1;
-			WTSPIwrap pinfo;
-			if (not WTSEnumerateProcessesExW(0, &pLevel, WTS_ANY_SESSION, (LPWSTR*)&pinfo.WPI, &pCount)) {
-				throw std::runtime_error("Proc::collect() -> WTSEnumerateProcessesExW failed");
+			vector<size_t> found;		
+			HandleWrapper pSnap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+
+			if (not pSnap.valid) {
+				throw std::runtime_error("Proc::collect() -> CreateToolhelp32Snapshot() failed!");
 			}
 
-			for (auto i = 0; i < pCount; i++) {
-				auto& process = pinfo.WPI[i];
-				if (process.ProcessId == 0) continue;
+			PROCESSENTRY32 pe;
+			pe.dwSize = sizeof(PROCESSENTRY32);
+
+			if (not Process32First(pSnap(), &pe)) {
+				throw std::runtime_error("Proc::collect() -> Process32First() failed!");
+			}
+
+			do {
+				
+				size_t pid = pe.th32ProcessID;
+				if (pid == 0) continue;
+
+				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID));
+				if (not pHandle.valid) continue;
 			
 				if (Runner::stopping)
 					return current_procs;
 				
-				const size_t pid = process.ProcessId;
 				found.push_back(pid);
 
 				//? Check if pid already exists in current_procs
@@ -1497,8 +1561,7 @@ namespace Proc {
 
 				//? Get program name, command and username
 				if (no_cache) {
-					new_proc.name = string(CW2A(process.pProcessName));
-					
+					new_proc.name = CW2A(pe.szExeFile);
 
 					//new_proc.cmd = "?";
 					if (new_proc.cmd.size() > 1000) {
@@ -1506,19 +1569,28 @@ namespace Proc {
 						break;
 					}
 					
-					//LPWSTR Name;
-					//LPWSTR RefDomain;
-					//SID_NAME_USE peUse;
-					//DWORD mSize = MAX_PATH;
+					/*SID_NAME_USE peUse;
+					DWORD cchName = 0;
+					DWORD cchRefDomain = 0;
 
-					//if (LookupAccountSidW(nullptr, process.pUserSid, Name, &mSize, RefDomain, &mSize, &peUse)) {
-					//	new_proc.user = string(CW2A(Name));
-					//}
 					new_proc.user = "unknown";
-
+					
+					LookupAccountSidW(nullptr, process.pUserSid, nullptr, &cchName, nullptr, &cchRefDomain, &peUse);
+					
+					vector<wchar_t> Name(cchName + 1);
+					vector<wchar_t> RefDomain(cchRefDomain + 1);
+					if (LookupAccountSidW(nullptr, &process.pUserSid, Name.data(), &cchName, RefDomain.data(), &cchRefDomain, &peUse)) {
+						new_proc.user = string(CW2A(Name.data()));
+					}
+					else {
+						new_proc.user = to_string(GetLastError());
+					}*/
 				}
 
-				new_proc.mem = process.WorkingSetSize;
+				new_proc.mem = 10;
+
+				new_proc.threads = pe.cntThreads;
+				new_proc.ppid = pe.th32ParentProcessID;
 				
 
 	//			//? Parse /proc/[pid]/stat
@@ -1606,7 +1678,7 @@ namespace Proc {
 	//			if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
 	//				got_detailed = true;
 	//			}
-	//		}
+			} while (Process32Next(pSnap(), &pe));
 
 			//? Clear dead processes from current_procs
 			auto eraser = rng::remove_if(current_procs, [&](const auto& element){ return not v_contains(found, element.pid); });
@@ -1619,7 +1691,7 @@ namespace Proc {
 	//		else if (show_detailed and not got_detailed and detailed.status != "Dead") {
 	//			detailed.status = "Dead";
 	//			redraw = true;
-			}
+			//}
 
 	//		old_cputimes = cputimes;
 		}

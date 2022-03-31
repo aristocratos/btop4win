@@ -15,7 +15,7 @@
 indent = tab
 tab-size = 4
 */
-#pragma warning (disable : 4455 4244 6305 26819 26495)
+#pragma warning (disable : 4455 4244 6305 26495)
 #pragma once
 
 #include <string>
@@ -93,7 +93,6 @@ namespace Cpu {
 			{"user", {}},
 			{"dpc", {}},
 			{"interrupt", {}},
-			{"system", {}},
 			{"idle", {}},
 		};
 		vector<deque<long long>> core_percent;
