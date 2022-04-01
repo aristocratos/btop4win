@@ -37,9 +37,6 @@ tab-size = 4
 #pragma comment( lib, "PowrProf.lib")
 #include <atlstr.h>
 #include <tlhelp32.h>
-#include <comdef.h>
-#include <Wbemidl.h>
-#pragma comment(lib, "wbemuuid.lib")
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -106,55 +103,6 @@ namespace Tools {
 
 		RevertToSelf();
 	}
-
-	string b2str(BSTR source) {
-		if (source == NULL) return "";
-		_bstr_t wrapped_bstr = _bstr_t(source);
-		return string(CW2A(wrapped_bstr));
-	}
-}
-
-namespace Shared {
-
-	IWbemLocator* WbemLocator;
-	IWbemServices* WbemServices;
-
-	void WMI_init() {
-		
-		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> CoInitializeEx() failed with code: " + to_string(hr));
-		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> CoInitializeSecurity() failed with code: " + to_string(hr));
-		if (auto hr = CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID*)&WbemLocator); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> CoCreateInstance() failed with code: " + to_string(hr));
-		if (auto hr = WbemLocator->ConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, NULL, 0, NULL, NULL, &WbemServices); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
-	}
-
-	class WbemEnumerator {
-	public:
-		IEnumWbemClassObject* WbEnum = NULL;
-		WbemEnumerator() { ; }
-		auto operator()() { return WbEnum; }
-		~WbemEnumerator() { if (WbEnum != NULL) WbEnum->Release(); }
-	};
-
-	class WbemClObject {
-	public:
-		IWbemClassObject* WbClObj = NULL;
-		WbemClObject() { ; }
-		auto operator()() { return WbClObj; }
-		~WbemClObject() { if (WbClObj != NULL) WbClObj->Release(); }
-	};
-
-	class VariantWrap {
-	public:
-		VARIANT val;
-		VariantWrap() { ; }
-		auto operator()() { return val; }
-		~VariantWrap() { VariantClear(&val); }
-	};
-
 }
 
 namespace Cpu {
@@ -308,8 +256,6 @@ namespace Shared {
 			Logger::warning("Failed to set SE DEBUG mode for process!");
 			Logger::debug(e.what());
 		}
-
-		Shared::WMI_init();
 
 	}
 
@@ -1574,15 +1520,9 @@ namespace Proc {
 	//		else throw std::runtime_error("Failure to read /proc/stat");
 	//		pread.close();
 
-			// Explore WMI for data collection
-			// Look at https://stackoverflow.com/questions/6530565/getting-another-process-command-line-in-windows/20082113#20082113
-			// win32-process: https://docs.microsoft.com/en-us/windows/win32/cimwin32prov/win32-process
-			// ref: https://docs.microsoft.com/en-us/windows/win32/wmisdk/example--getting-wmi-data-from-the-local-computer
-
 			//? Iterate over all pids in /proc
 			vector<size_t> found;		
-			
-			/*HandleWrapper pSnap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+			HandleWrapper pSnap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
 
 			if (not pSnap.valid) {
 				Logger::warning("Proc::collect() -> CreateToolhelp32Snapshot() failed!");
@@ -1595,47 +1535,26 @@ namespace Proc {
 			if (not Process32First(pSnap(), &pe)) {
 				Logger::warning("Proc::collect() -> Process32First() failed!");
 				return current_procs;
-			}*/
-
-			Shared::WbemEnumerator WMI;
-			
-			if (auto hr = Shared::WbemServices->ExecQuery(
-					_bstr_t(L"WQL"),
-					_bstr_t(L"SELECT ProcessID,Name,CommandLine,ExecutablePath,WorkingSetSize,ThreadCount FROM Win32_Process"),
-					WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-					NULL,
-					&WMI.WbEnum);
-				FAILED(hr) or WMI() == NULL) {
-
-				throw std::runtime_error("Proc::collect() -> WbemServices query failed with code: " + to_string(hr));
 			}
 
-			Shared::WbemClObject result;
-			ULONG retCount = 0;
-			int iii = 0;
-
-			while (WMI()->Next(WBEM_INFINITE, 1, &result.WbClObj, &retCount) == S_OK) {
-				Shared::VariantWrap ProcessId;
+			do {
 				
-
-				if (result()->Get(L"ProcessId", 0, &ProcessId.val, 0, 0) != S_OK) continue;
-				
-				size_t pid = ProcessId().uintVal;
+				size_t pid = pe.th32ProcessID;
 				if (pid == 0) continue;
 
-				/*HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
-				if (not pHandle.valid) continue;*/
-
+				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID));
+				if (not pHandle.valid) continue;
+			
 				if (Runner::stopping)
 					return current_procs;
-
+				
 				found.push_back(pid);
 
 				//? Check if pid already exists in current_procs
 				auto find_old = rng::find(current_procs, pid, &proc_info::pid);
 				bool no_cache = false;
 				if (find_old == current_procs.end()) {
-					current_procs.push_back({ pid });
+					current_procs.push_back({pid});
 					find_old = current_procs.end() - 1;
 					no_cache = true;
 				}
@@ -1644,41 +1563,24 @@ namespace Proc {
 
 				//? Get program name, command and username
 				if (no_cache) {
-
-					Shared::VariantWrap Name;
-					result()->Get(L"Name", 0, &Name.val, 0, 0);
-
-					new_proc.name = b2str(Name().bstrVal);
-
+					new_proc.name = CW2A(pe.szExeFile);
 					
-					Shared::VariantWrap CommandLine;
-					if (result()->Get(L"CommandLine", 0, &CommandLine.val, 0, 0) == S_OK)
-						new_proc.cmd = b2str(CommandLine().bstrVal);
-
-					
-					if (new_proc.cmd.empty()) {
-						Shared::VariantWrap ExecutablePath;
-						if (result()->Get(L"ExecutablePath", 0, &ExecutablePath.val, 0, 0) == S_OK)
-							new_proc.cmd = b2str(ExecutablePath().bstrVal);
-					}
-
-					if (new_proc.cmd.empty()) new_proc.cmd = new_proc.name;
-
+					new_proc.cmd = new_proc.name;
 					if (new_proc.cmd.size() > 1000) {
 						new_proc.cmd.resize(1000);
 						break;
 					}
 
 					new_proc.name = new_proc.name.substr(0, new_proc.name.find_last_of('.'));
-
+					
 					/*SID_NAME_USE peUse;
 					DWORD cchName = 0;
 					DWORD cchRefDomain = 0;
 
 					new_proc.user = "unknown";
-
+					
 					LookupAccountSidW(nullptr, process.pUserSid, nullptr, &cchName, nullptr, &cchRefDomain, &peUse);
-
+					
 					vector<wchar_t> Name(cchName + 1);
 					vector<wchar_t> RefDomain(cchRefDomain + 1);
 					if (LookupAccountSidW(nullptr, &process.pUserSid, Name.data(), &cchName, RefDomain.data(), &cchRefDomain, &peUse)) {
@@ -1689,112 +1591,98 @@ namespace Proc {
 					}*/
 				}
 
-				Shared::VariantWrap WorkingSetSize;
-				if (result()->Get(L"WorkingSetSize", 0, &WorkingSetSize.val, 0, 0) == S_OK)
-					new_proc.mem = static_cast<uint64_t>(WorkingSetSize().ullVal);
+				new_proc.mem = 10;
 
-				//if (iii++ > 100) {
-				//	Logger::debug("ull=" + to_string((UINT64)WorkingSetSize().ullVal) + " ul=" + to_string(WorkingSetSize().ulVal) + " uint=" + to_string(WorkingSetSize().uintVal));
-				//	
-				//	if (iii > 105)
-				//		exit(0);
-				//}
+				new_proc.threads = pe.cntThreads;
+				new_proc.ppid = pe.th32ParentProcessID;
+				
 
+	//			//? Parse /proc/[pid]/stat
+	//			pread.open(d.path() / "stat");
+	//			if (not pread.good()) continue;
 
+	//			const auto& offset = new_proc.name_offset;
+	//			short_str.clear();
+	//			int x = 0, next_x = 3;
+	//			uint64_t cpu_t = 0;
+	//			try {
+	//				for (;;) {
+	//					while (pread.good() and ++x < next_x + offset) pread.ignore(SSmax, ' ');
+	//					if (not pread.good()) break;
+	//					else getline(pread, short_str, ' ');
 
-				Shared::VariantWrap ThreadCount;
-				if (result()->Get(L"ThreadCount", 0, &ThreadCount.val, 0, 0) == S_OK)
-					new_proc.threads = ThreadCount().uintVal;
-				//new_proc.ppid = pe.th32ParentProcessID;
+	//					switch (x-offset) {
+	//						case 3: //? Process state
+	//							new_proc.state = short_str.at(0);
+	//							if (new_proc.ppid != 0) next_x = 14;
+	//							continue;
+	//						case 4: //? Parent pid
+	//							new_proc.ppid = stoull(short_str);
+	//							next_x = 14;
+	//							continue;
+	//						case 14: //? Process utime
+	//							cpu_t = stoull(short_str);
+	//							continue;
+	//						case 15: //? Process stime
+	//							cpu_t += stoull(short_str);
+	//							next_x = 19;
+	//							continue;
+	//						case 19: //? Nice value
+	//							new_proc.p_nice = stoull(short_str);
+	//							continue;
+	//						case 20: //? Number of threads
+	//							new_proc.threads = stoull(short_str);
+	//							if (new_proc.cpu_s == 0) {
+	//								next_x = 22;
+	//								new_proc.cpu_t = cpu_t;
+	//							}
+	//							else
+	//								next_x = 24;
+	//							continue;
+	//						case 22: //? Get cpu seconds if missing
+	//							new_proc.cpu_s = stoull(short_str);
+	//							next_x = 24;
+	//							continue;
+	//						case 24: //? RSS memory (can be inaccurate, but parsing smaps increases total cpu usage by ~20x)
+	//							if (cmp_greater(short_str.size(), totalMem_len))
+	//								new_proc.mem = totalMem;
+	//							else
+	//								new_proc.mem = stoull(short_str) * Shared::pageSize;
+	//					}
+	//					break;
+	//				}
 
+	//			}
+	//			catch (const std::invalid_argument&) { continue; }
+	//			catch (const std::out_of_range&) { continue; }
 
-				//			//? Parse /proc/[pid]/stat
-				//			pread.open(d.path() / "stat");
-				//			if (not pread.good()) continue;
+	//			pread.close();
 
-				//			const auto& offset = new_proc.name_offset;
-				//			short_str.clear();
-				//			int x = 0, next_x = 3;
-				//			uint64_t cpu_t = 0;
-				//			try {
-				//				for (;;) {
-				//					while (pread.good() and ++x < next_x + offset) pread.ignore(SSmax, ' ');
-				//					if (not pread.good()) break;
-				//					else getline(pread, short_str, ' ');
+	//			if (x-offset < 24) continue;
 
-				//					switch (x-offset) {
-				//						case 3: //? Process state
-				//							new_proc.state = short_str.at(0);
-				//							if (new_proc.ppid != 0) next_x = 14;
-				//							continue;
-				//						case 4: //? Parent pid
-				//							new_proc.ppid = stoull(short_str);
-				//							next_x = 14;
-				//							continue;
-				//						case 14: //? Process utime
-				//							cpu_t = stoull(short_str);
-				//							continue;
-				//						case 15: //? Process stime
-				//							cpu_t += stoull(short_str);
-				//							next_x = 19;
-				//							continue;
-				//						case 19: //? Nice value
-				//							new_proc.p_nice = stoull(short_str);
-				//							continue;
-				//						case 20: //? Number of threads
-				//							new_proc.threads = stoull(short_str);
-				//							if (new_proc.cpu_s == 0) {
-				//								next_x = 22;
-				//								new_proc.cpu_t = cpu_t;
-				//							}
-				//							else
-				//								next_x = 24;
-				//							continue;
-				//						case 22: //? Get cpu seconds if missing
-				//							new_proc.cpu_s = stoull(short_str);
-				//							next_x = 24;
-				//							continue;
-				//						case 24: //? RSS memory (can be inaccurate, but parsing smaps increases total cpu usage by ~20x)
-				//							if (cmp_greater(short_str.size(), totalMem_len))
-				//								new_proc.mem = totalMem;
-				//							else
-				//								new_proc.mem = stoull(short_str) * Shared::pageSize;
-				//					}
-				//					break;
-				//				}
+	//			//? Get RSS memory from /proc/[pid]/statm if value from /proc/[pid]/stat looks wrong
+	//			if (new_proc.mem >= totalMem) {
+	//				pread.open(d.path() / "statm");
+	//				if (not pread.good()) continue;
+	//				pread.ignore(SSmax, ' ');
+	//				pread >> new_proc.mem;
+	//				new_proc.mem *= Shared::pageSize;
+	//				pread.close();
+	//			}
 
-				//			}
-				//			catch (const std::invalid_argument&) { continue; }
-				//			catch (const std::out_of_range&) { continue; }
+	//			//? Process cpu usage since last update
+	//			new_proc.cpu_p = clamp(round(cmult * 1000 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
 
-				//			pread.close();
+	//			//? Process cumulative cpu usage since process start
+	//			new_proc.cpu_c = (double)cpu_t / max(1.0, (uptime * Shared::clkTck) - new_proc.cpu_s);
 
-				//			if (x-offset < 24) continue;
+	//			//? Update cached value with latest cpu times
+	//			new_proc.cpu_t = cpu_t;
 
-				//			//? Get RSS memory from /proc/[pid]/statm if value from /proc/[pid]/stat looks wrong
-				//			if (new_proc.mem >= totalMem) {
-				//				pread.open(d.path() / "statm");
-				//				if (not pread.good()) continue;
-				//				pread.ignore(SSmax, ' ');
-				//				pread >> new_proc.mem;
-				//				new_proc.mem *= Shared::pageSize;
-				//				pread.close();
-				//			}
-
-				//			//? Process cpu usage since last update
-				//			new_proc.cpu_p = clamp(round(cmult * 1000 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
-
-				//			//? Process cumulative cpu usage since process start
-				//			new_proc.cpu_c = (double)cpu_t / max(1.0, (uptime * Shared::clkTck) - new_proc.cpu_s);
-
-				//			//? Update cached value with latest cpu times
-				//			new_proc.cpu_t = cpu_t;
-
-				//			if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
-				//				got_detailed = true;
-				//			}
-			}
-			//} while (Process32Next(pSnap(), &pe));
+	//			if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
+	//				got_detailed = true;
+	//			}
+			} while (Process32Next(pSnap(), &pe));
 
 			//? Clear dead processes from current_procs
 			auto eraser = rng::remove_if(current_procs, [&](const auto& element){ return not v_contains(found, element.pid); });
