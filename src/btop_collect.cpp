@@ -37,6 +37,8 @@ tab-size = 4
 #pragma comment( lib, "PowrProf.lib")
 #include <atlstr.h>
 #include <tlhelp32.h>
+#include <Psapi.h>
+#pragma comment( lib, "Psapi.lib")
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -1286,7 +1288,7 @@ namespace Proc {
 
 	fs::file_time_type passwd_time;
 
-	uint64_t cputimes;
+	uint64_t cputimes = 0;
 	int collapse = -1, expand = -1;
 	uint64_t old_cputimes = 0;
 	atomic<int> numpids = 0;
@@ -1472,14 +1474,17 @@ namespace Proc {
 			current_rev = reverse;
 		}
 
-		const double uptime = system_uptime();
+		FILETIME st;
+		::GetSystemTimeAsFileTime(&st);
+		const uint64_t systime = ULARGE_INTEGER{ st.dwLowDateTime, st.dwHighDateTime }.QuadPart;
+		//const uint64_t uptime = ULARGE_INTEGER{ systime.dwLowDateTime, systime.dwHighDateTime}.QuadPart - GetTickCount64();
 
 		const int cmult = (per_core) ? Shared::coreCount : 1;
 		bool got_detailed = false;
 
 		//* Use pids from last update if only changing filter, sorting or tree options
 		if (no_update and not current_procs.empty()) {
-			if (show_detailed and detailed_pid != detailed.last_pid) _collect_details(detailed_pid, round(uptime), current_procs);
+			if (show_detailed and detailed_pid != detailed.last_pid) _collect_details(detailed_pid, round(system_uptime()), current_procs);
 		}
 		//* ---------------------------------------------Collection start----------------------------------------------
 		else {
@@ -1510,15 +1515,17 @@ namespace Proc {
 	//			pread.close();
 	//		}
 
-	//		//? Get cpu total times from /proc/stat
-	//		cputimes = 0;
-	//		pread.open(Shared::procPath / "stat");
-	//		if (pread.good()) {
-	//			pread.ignore(SSmax, ' ');
-	//			for (uint64_t times; pread >> times; cputimes += times);
-	//		}
-	//		else throw std::runtime_error("Failure to read /proc/stat");
-	//		pread.close();
+			//? Get cpu total times
+			if (FILETIME idle, kernel, user; GetSystemTimes(&idle, &kernel, &user)) {
+				cputimes	= ULARGE_INTEGER{ kernel.dwLowDateTime, kernel.dwHighDateTime }.QuadPart
+							- ULARGE_INTEGER{ idle.dwLowDateTime, idle.dwHighDateTime }.QuadPart
+							+ ULARGE_INTEGER{ user.dwLowDateTime, user.dwHighDateTime }.QuadPart;
+			}
+			else {
+				throw std::runtime_error("Proc::collect() -> GetSystemTimes() failed!");
+			}
+			
+			
 
 			//? Iterate over all pids in /proc
 			vector<size_t> found;		
@@ -1543,7 +1550,8 @@ namespace Proc {
 				if (pid == 0) continue;
 
 				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID));
-				if (not pHandle.valid) continue;
+				//if (not pHandle.valid) continue;
+				
 			
 				if (Runner::stopping)
 					return current_procs;
@@ -1561,7 +1569,7 @@ namespace Proc {
 
 				auto& new_proc = *find_old;
 
-				//? Get program name, command and username
+				//? Cache values that shouldn't change
 				if (no_cache) {
 					new_proc.name = CW2A(pe.szExeFile);
 					
@@ -1572,6 +1580,10 @@ namespace Proc {
 					}
 
 					new_proc.name = new_proc.name.substr(0, new_proc.name.find_last_of('.'));
+
+					new_proc.ppid = pe.th32ParentProcessID;
+
+					//if (pHandle() == NULL) new_proc.user = "invalid";
 					
 					/*SID_NAME_USE peUse;
 					DWORD cchName = 0;
@@ -1591,11 +1603,32 @@ namespace Proc {
 					}*/
 				}
 
-				new_proc.mem = 10;
-
 				new_proc.threads = pe.cntThreads;
-				new_proc.ppid = pe.th32ParentProcessID;
 				
+
+				if (pHandle.valid) {
+
+					//? Process memory
+					if (PROCESS_MEMORY_COUNTERS_EX pmem; GetProcessMemoryInfo(pHandle(), (PROCESS_MEMORY_COUNTERS *)&pmem, sizeof(PROCESS_MEMORY_COUNTERS_EX))) {
+						new_proc.mem = pmem.PrivateUsage;
+					}
+					
+					//? Process cpu stats
+					if (FILETIME createT, exitT, kernelT, userT; GetProcessTimes(pHandle(), &createT, &exitT, &kernelT, &userT)) {
+
+						new_proc.cpu_s = ULARGE_INTEGER{ createT.dwLowDateTime, createT.dwHighDateTime }.QuadPart;
+						const uint64_t cpu_t = ULARGE_INTEGER{ kernelT.dwLowDateTime, kernelT.dwHighDateTime }.QuadPart + ULARGE_INTEGER{ userT.dwLowDateTime, userT.dwHighDateTime }.QuadPart;
+
+						//? Process cpu usage since last update
+						new_proc.cpu_p = clamp(round(cmult * 100 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
+
+						//? Process cumulative cpu usage since process start
+						new_proc.cpu_c = (double)cpu_t / max(1ull, systime - new_proc.cpu_s);
+
+						//? Update cached value with latest cpu times
+						new_proc.cpu_t = cpu_t;
+					}
+				}
 
 	//			//? Parse /proc/[pid]/stat
 	//			pread.open(d.path() / "stat");
@@ -1697,7 +1730,7 @@ namespace Proc {
 	//			redraw = true;
 			//}
 
-	//		old_cputimes = cputimes;
+			old_cputimes = cputimes;
 		}
 		//* ---------------------------------------------Collection done-----------------------------------------------
 
@@ -1809,18 +1842,6 @@ namespace Proc {
 
 namespace Tools {
 	double system_uptime() {
-		return 0.0;
-		//string upstr;
-		//ifstream pread(Shared::procPath / "uptime");
-		//if (pread.good()) {
-		//	try {
-		//		getline(pread, upstr, ' ');
-		//		pread.close();
-		//		return stod(upstr);
-		//	}
-		//	catch (const std::invalid_argument&) {}
-		//	catch (const std::out_of_range&) {}
-		//}
-		//throw std::runtime_error("Failed get uptime from from " + (string)Shared::procPath + "/uptime");
+		return (double)GetTickCount64() / 1000;
 	}
 }
