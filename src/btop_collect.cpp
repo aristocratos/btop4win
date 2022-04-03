@@ -20,7 +20,11 @@ tab-size = 4
 #include <ranges>
 #include <cmath>
 #include <numeric>
+#include <mutex>
+#include <chrono>
+#include <date.h>
 
+#define _WIN32_DCOM
 #define _WIN32_WINNT 0x0600
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -33,12 +37,16 @@ tab-size = 4
 #pragma comment( lib, "ntdll.lib" )
 #include <Pdh.h>
 #pragma comment( lib, "Pdh.lib" )
-#include <powerbase.h>
-#pragma comment( lib, "PowrProf.lib")
 #include <atlstr.h>
 #include <tlhelp32.h>
 #include <Psapi.h>
 #pragma comment( lib, "Psapi.lib")
+#include <comdef.h>
+#include <Wbemidl.h>
+#pragma comment(lib, "wbemuuid.lib")
+
+#define LODWORD(_qw)    ((DWORD)(_qw))
+#define HIDWORD(_qw)    ((DWORD)(((_qw) >> 32) & 0xffffffff))
 
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
@@ -57,7 +65,7 @@ namespace Tools {
 	public:
 		HANDLE wHandle;
 		bool valid = false;
-		HandleWrapper() { ; }
+		HandleWrapper() : wHandle(nullptr) { ; }
 		HandleWrapper(HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE && wHandle != NULL); }
 		auto operator()() { return wHandle; }
 		~HandleWrapper() { CloseHandle(wHandle); }
@@ -105,6 +113,80 @@ namespace Tools {
 
 		RevertToSelf();
 	}
+	string b2str(BSTR source) {
+		if (source == NULL) return "";
+		_bstr_t wrapped_bstr = _bstr_t(source);
+		return string(CW2A(wrapped_bstr));
+	}
+
+	uint64_t cim2ui64(_bstr_t& cim_bstr_t) {
+		using namespace std::chrono;
+		string str = b2str(cim_bstr_t);
+		const uint64_t yyyy = atoi(str.substr(0, 4).c_str());
+		const uint64_t MM = atoi(str.substr(4, 2).c_str());
+		const uint64_t DD = atoi(str.substr(6, 2).c_str());
+		const uint64_t HH = atoi(str.substr(8, 2).c_str());
+		const uint64_t MI = atoi(str.substr(10, 2).c_str());
+		const uint64_t SS = atoi(str.substr(12, 2).c_str());
+		const uint64_t ssssss = atoi(str.substr(15, 6).c_str());
+		return time_point<system_clock,microseconds>(
+			sys_days{ date::year(yyyy) / MM / DD }
+			+ hours{ HH } + minutes{ MI } + seconds{ SS } + microseconds{ ssssss }
+		).time_since_epoch().count();
+	}
+}
+
+namespace Shared {
+
+	IWbemLocator* WbemLocator;
+	IWbemServices* WbemServices;
+	/*IWbemClassObject* getClass;
+	IWbemClassObject* WbemGetOwner;
+	IWbemClassObject* WbemGetOwnerInstance;*/
+
+	void WMI_init() {
+
+		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> CoInitializeEx() failed with code: " + to_string(hr));
+		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> CoInitializeSecurity() failed with code: " + to_string(hr));
+		if (auto hr = CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID*)&WbemLocator); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> CoCreateInstance() failed with code: " + to_string(hr));
+		if (auto hr = WbemLocator->ConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, NULL, 0, NULL, NULL, &WbemServices); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
+		if (auto hr = CoSetProxyBlanket(WbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHN_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
+		/*if (auto hr = WbemServices->GetObject(_bstr_t(L"Win32_Process"), 0, NULL, &getClass, NULL); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> bemServices->GetObject() failed with code: " + to_string(hr));
+		if (auto hr = getClass->GetMethod(_bstr_t("GetOwner"), 0, NULL, &WbemGetOwner); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> getClass->GetMethod() failed with code: " + to_string(hr));
+		if (auto hr = WbemGetOwner->SpawnInstance(0, &WbemGetOwnerInstance); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> WbemGetOwner->SpawnInstance() failed with code: " + to_string(hr));*/
+	}
+
+	class WbemEnumerator {
+	public:
+		IEnumWbemClassObject* WbEnum = NULL;
+		WbemEnumerator() { ; }
+		auto operator()() { return WbEnum; }
+		~WbemEnumerator() { WbEnum->Release(); }
+	};
+
+	class WMIObjectReleaser {
+	public:
+		IWbemClassObject& WbClObj;
+		WMIObjectReleaser(IWbemClassObject* obj) : WbClObj(*obj) { ; }
+		~WMIObjectReleaser() { if (&WbClObj != nullptr) WbClObj.Release(); }
+	};
+
+	class VariantWrap {
+	public:
+		VARIANT val;
+		VariantWrap() { ; }
+		auto operator()() { return &val; }
+		~VariantWrap() { VariantClear(&val); }
+	};
+
 }
 
 namespace Cpu {
@@ -118,10 +200,6 @@ namespace Cpu {
 	//* Populate found_sensors map
 	bool get_sensors();
 
-	//* Get current cpu clock speed
-	string get_cpuHz();
-
-	//* Search /proc/cpuinfo for a cpu name
 	string get_cpuName();
 
 	struct Sensor {
@@ -198,6 +276,189 @@ namespace Cpu {
 	}
 }
 
+namespace Proc {
+
+	struct WMIEntry {
+		_bstr_t Name;
+		_bstr_t CommandLine;
+		_bstr_t ExecutablePath;
+		_bstr_t KernelModeTime;
+		_bstr_t UserModeTime;
+		_bstr_t CreationDate;
+		UINT32 ThreadCount;
+		_bstr_t PrivateMemory;
+		_bstr_t ReadTransferCount;
+		_bstr_t WriteTransferCount;
+		//_bstr_t Username;
+	};
+
+	struct WMIQuerys{
+		_bstr_t WQL = L"WQL";
+		_bstr_t SELECT = L"SELECT * FROM Win32_Process";
+		_bstr_t ProcessID = L"ProcessID";
+		_bstr_t Name = L"Name";
+		_bstr_t CommandLine = L"CommandLine";
+		_bstr_t ExecutablePath = L"ExecutablePath";
+		_bstr_t KernelModeTime = L"KernelModeTime";
+		_bstr_t UserModeTime = L"UserModeTime";
+		_bstr_t CreationDate = L"CreationDate";
+		_bstr_t ThreadCount = L"ThreadCount";
+		_bstr_t PrivateMemory = L"PrivatePageCount";
+		_bstr_t ReadTransferCount = L"ReadTransferCount";
+		_bstr_t WriteTransferCount = L"WriteTransferCount";
+		_bstr_t Win32 = L"Win32_Process";
+		_bstr_t Handler = L"Win32_Process.Handle=";
+		_bstr_t GetOwner = L"GetOwner";
+		_bstr_t User = L"User";
+	};
+
+	atomic<uint64_t> WMItimer = 0;
+	robin_hood::unordered_flat_map<size_t, WMIEntry> WMIList;
+	std::mutex WMImutex;
+
+	void WMIProcs() {
+		WMIQuerys Q{};
+		while (not Global::quitting) {
+			auto timeStart = time_micros();
+			Shared::WbemEnumerator WMI;
+
+			if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, NULL, &WMI.WbEnum); FAILED(hr) or WMI() == NULL) {
+				throw std::runtime_error("Proc::WMIProcs() [thread] -> WbemServices query failed with code: " + to_string(hr));
+			}
+
+			robin_hood::unordered_flat_map<size_t, WMIEntry> newWMIList;
+			IWbemClassObject* result = NULL;
+			ULONG retCount = 0;
+			int iii = 0;
+
+			while (WMI.WbEnum->Next(WBEM_INFINITE, 1, &result, &retCount) == S_OK) {
+				Shared::WMIObjectReleaser rls(result);
+				if (retCount == 0) break;
+				size_t pid = 0;
+				{
+					Shared::VariantWrap ProcessId{};
+					if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
+					pid = ProcessId()->uintVal;
+				}
+				if (pid == 0) continue;
+				//_bstr_t pid_str = _bstr_t(to_string(pid).c_str());
+
+				newWMIList[pid] = {};
+				auto& entry = newWMIList.at(pid);
+				{
+					Shared::VariantWrap Name{};
+					if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
+						entry.Name = Name()->bstrVal;
+				}
+				{
+					Shared::VariantWrap CommandLine{};
+					if (result->Get(Q.CommandLine, 0, &CommandLine.val, 0, 0) == S_OK)
+						entry.CommandLine = CommandLine()->bstrVal;
+				}
+				{
+					Shared::VariantWrap ExecutablePath{};
+					if (result->Get(Q.ExecutablePath, 0, &ExecutablePath.val, 0, 0) == S_OK)
+						entry.ExecutablePath = ExecutablePath()->bstrVal;
+				}
+				{
+					Shared::VariantWrap KernelModeTime{};
+					if (result->Get(Q.KernelModeTime, 0, &KernelModeTime.val, 0, 0) == S_OK)
+						entry.KernelModeTime = KernelModeTime()->bstrVal;
+				}
+				{
+					Shared::VariantWrap UserModeTime{};
+					if (result->Get(Q.UserModeTime, 0, &UserModeTime.val, 0, 0) == S_OK)
+						entry.UserModeTime = UserModeTime()->bstrVal;
+				}
+				{
+					Shared::VariantWrap CreationDate{};
+					if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK)
+						entry.CreationDate = CreationDate()->bstrVal;
+				}
+				{
+					Shared::VariantWrap ThreadCount{};
+					if (result->Get(Q.ThreadCount, 0, &ThreadCount.val, 0, 0) == S_OK)
+						entry.ThreadCount = ThreadCount()->uintVal;
+				}
+				{
+					Shared::VariantWrap PrivateMemory{};
+					if (result->Get(Q.PrivateMemory, 0, &PrivateMemory.val, 0, 0) == S_OK)
+						entry.PrivateMemory = PrivateMemory()->bstrVal;
+				}
+				{
+					Shared::VariantWrap ReadTransferCount{};
+					if (result->Get(Q.ReadTransferCount, 0, &ReadTransferCount.val, 0, 0) == S_OK)
+						entry.ReadTransferCount = ReadTransferCount()->bstrVal;
+				}
+				{
+					Shared::VariantWrap WriteTransferCount{};
+					if (result->Get(Q.WriteTransferCount, 0, &WriteTransferCount.val, 0, 0) == S_OK)
+						entry.WriteTransferCount = WriteTransferCount()->bstrVal;
+				}
+				//_bstr_t p_path;
+				////Logger::debug("1");
+				//{
+				//	Shared::VariantWrap Path{};
+				//	if (result->Get(Q.PATH, 0, &Path.val, 0, 0) == S_OK)
+				//		p_path = Path()->bstrVal;
+				//}
+				//{
+				//	//IWbemClassObject* GetOwnerIn = NULL;
+				//	
+				//	_bstr_t handle = Q.Handler + _bstr_t(std::to_wstring(pid).c_str());
+				//	
+				//	
+				//	Shared::WbemClassObject pClass{};
+				//	if (Shared::WbemServices->GetObject(Q.Win32, 0, 0, &pClass.Object, 0) == S_OK) {
+				//		Shared::WbemClassObject GetOwnerIn{};
+				//		Shared::WbemClassObject GetOwnerOut{};
+				//		if (pClass()->GetMethod(Q.GetOwner, 0, &GetOwnerIn.Object, &GetOwnerOut.Object) == S_OK) {
+				//			Shared::WbemClassObject pOutParams{};
+				//			if (Shared::WbemServices->ExecMethod(handle, Q.GetOwner, WBEM_FLAG_FORWARD_ONLY, 0, GetOwnerIn.Object, &pOutParams.Object, 0) == S_OK) {
+				//				Shared::VariantWrap Username{};
+				//				if (pOutParams()->Get(Q.User, 0, &Username.val, 0, 0) == S_OK) {
+				//					entry.Username = Username()->bstrVal;
+				//					//Logger::debug(b2str(entry.Username));
+				//					//exit(0);
+				//				}
+				//			}
+				//		}
+				//	}
+				//	
+				//}
+				//if (iii++ >= 200 and iii % 2 == 0) {
+				//	Logger::debug(
+				//		"Proc=" + ljust(b2str(entry.Name), 10) + " " +
+				//		"CMD=" + ljust(b2str(entry.CommandLine), 20) + " " +
+				//		"Path=" + ljust(b2str(entry.ExecutablePath), 20) + " " +
+				//		"Kernel=" + ljust(b2str(entry.KernelModeTime), 20) + " " +
+				//		"User=" + ljust(b2str(entry.UserModeTime), 20) + " " +
+				//		"Create=" + ljust(b2str(entry.CreationDate), 20) + " " +
+				//		"Pmem=" + ljust(b2str(entry.PrivateMemory), 20) + " " +
+				//		"Thread=" + ljust(to_string(entry.ThreadCount), 5) + " " +
+				//		"Read=" + ljust(b2str(entry.ReadTransferCount), 20) + " " +
+				//		"Write=" + ljust(b2str(entry.WriteTransferCount), 20) + " "
+				//	);
+				//	if (iii >= 250) exit(0);
+				//}
+			}
+
+			auto timeDone = time_micros();
+			auto timeSpent = timeDone - timeStart;
+
+			{
+				const std::lock_guard<std::mutex> lck(Proc::WMImutex);
+				Proc::WMIList.swap(newWMIList);
+				Proc::WMItimer = timeSpent;
+			}
+
+			auto timeNext = timeDone + 1'000'000;
+			if (auto timeNow = time_micros(); timeNext > timeNow) 
+				sleep_micros(timeNext - timeNow);
+		}
+	}
+}
+
 namespace Shared {
 
 	fs::path procPath, passwd_path;
@@ -259,6 +520,10 @@ namespace Shared {
 			Logger::debug(e.what());
 		}
 
+		Shared::WMI_init();
+
+		std::thread(Proc::WMIProcs).detach();
+
 	}
 
 }
@@ -289,7 +554,7 @@ namespace Cpu {
 		if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
 			wchar_t cpuName[255];
 			DWORD BufSize = sizeof(cpuName);
-			if (RegQueryValueEx(hKey, L"ProcessorNameString", nullptr, nullptr, (LPBYTE)cpuName, &BufSize) == ERROR_SUCCESS) {
+			if (RegQueryValueEx(hKey, L"ProcessorNameString", NULL, NULL, (LPBYTE)cpuName, &BufSize) == ERROR_SUCCESS) {
 				name = string(CW2A(cpuName));
 			}
 		}
@@ -504,37 +769,6 @@ namespace Cpu {
 		ULONG CurrentIdleState;
 	} PROCESSOR_POWER_INFORMATION, * PPROCESSOR_POWER_INFORMATION;
 
-	string get_cpuHz() {
-		static bool failed = false;
-		if (failed) return "";
-		vector<PROCESSOR_POWER_INFORMATION> ppinfo(Shared::coreCount);
-
-		if (CallNtPowerInformation(ProcessorInformation, nullptr, 0, &ppinfo[0], Shared::coreCount * sizeof(PROCESSOR_POWER_INFORMATION)) != 0) {
-			Logger::warning("Cpu::get_cpuHz() -> CallNtPowerInformation() failed");
-			failed = true;
-			return "";
-		}
-
-		long hz = ppinfo[0].CurrentMhz;
-
-		if (hz <= 1 or hz >= 1000000) {
-			Logger::warning("Cpu::get_cpuHz() -> Got invalid cpu mhz value");
-			failed = true;
-			return "";
-		}
-
-		string cpuhz;
-		if (hz >= 1000) {
-			if (hz >= 10000) cpuhz = to_string((int)round(hz / 1000));
-			else cpuhz = to_string(round(hz / 100) / 10.0).substr(0, 3);
-			cpuhz += " GHz";
-		}
-		else if (hz > 0)
-			cpuhz = to_string((int)round(hz)) + " MHz";
-
-		return cpuhz;
-	}
-
 	auto get_core_mapping() -> unordered_flat_map<int, int> {
 		unordered_flat_map<int, int> core_map;
 		if (cpu_temp_only) return core_map;
@@ -745,7 +979,7 @@ namespace Cpu {
 				NtQuerySystemInformation(SystemProcessorPerformanceInformation,
 				&sppi[0],
 				Shared::coreCount * sizeof(_SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION),
-				nullptr))){
+				NULL))){
 			throw std::runtime_error("Failed to run Cpu::collect() -> NtQuerySystemInformation()");
 		}
 
@@ -808,9 +1042,6 @@ namespace Cpu {
 			ii++;
 		}
 
-		if (Config::getB("show_cpu_freq"))
-			cpuHz = get_cpuHz();
-
 	//	if (Config::getB("check_temp") and got_sensors)
 	//		update_sensors();
 
@@ -841,31 +1072,37 @@ namespace Mem {
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
 
-		static MEMORYSTATUSEX memstat;
+		MEMORYSTATUSEX memstat;
 		memstat.dwLength = sizeof(memstat);
+		PERFORMACE_INFORMATION perfinfo;
 		
-		if (GlobalMemoryStatusEx(&memstat) == 0) {
+		if (not GlobalMemoryStatusEx(&memstat)) {
 			throw std::runtime_error("Failed to run Mem::collect() -> GlobalMemoryStatusEx()");
+		}
+		if (not GetPerformanceInfo(&perfinfo, sizeof(PERFORMANCE_INFORMATION))) {
+			throw std::runtime_error("Failed to run Mem::collect() -> GetPerformanceInfo()");
 		}
 
 		totalMem = static_cast<int64_t>(memstat.ullTotalPhys);
+		const int64_t totalCommit = perfinfo.CommitLimit * perfinfo.PageSize;
 		mem.stats.at("available") = static_cast<int64_t>(memstat.ullAvailPhys);
 		mem.stats.at("used") = totalMem * memstat.dwMemoryLoad / 100;
-		mem.stats.at("virtual") = static_cast<int64_t>(memstat.ullTotalVirtual) - static_cast<int64_t>(memstat.ullAvailVirtual);
-		mem.stats.at("free") = totalMem - mem.stats.at("used");
+		mem.stats.at("cached") = perfinfo.SystemCache * perfinfo.PageSize;
+		mem.stats.at("commit") = perfinfo.CommitTotal * perfinfo.PageSize;
 
 		mem.stats.at("page_total") = static_cast<int64_t>(memstat.ullTotalPageFile) - totalMem;
 		mem.stats.at("page_free") = static_cast<int64_t>(memstat.ullAvailPageFile);
 		mem.stats.at("page_used") = mem.stats.at("page_total") - mem.stats.at("page_free");
 
 		//? Calculate percentages
-		for (const auto& name : mem_names) {
-			mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / totalMem));
+		for (const string& name : { "used", "available", "cached", "commit"}) {
+			mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / (name == "commit" ? totalCommit : totalMem)));
 			while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
 		}
+		
 
 		if (show_swap and mem.stats.at("page_total") > 0) {
-			for (const auto& name : swap_names) {
+			for (const auto& name : {"page_used", "page_free"}) {
 				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("page_total")));
 				while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
 			}
@@ -1095,16 +1332,6 @@ namespace Net {
 	unordered_flat_map<string, array<int, 2>> max_count = { {"download", {}}, {"upload", {}} };
 	bool rescale = true;
 	uint64_t timestamp = 0;
-
-	//* RAII wrapper for getifaddrs
-	//class getifaddr_wrapper {
-	//	struct ifaddrs* ifaddr;
-	//public:
-	//	int status;
-	//	getifaddr_wrapper() { status = getifaddrs(&ifaddr); }
-	//	~getifaddr_wrapper() { freeifaddrs(ifaddr); }
-	//	auto operator()() -> struct ifaddrs* { return ifaddr; }
-	//};
 
 	auto collect(const bool no_update) -> net_info& {
 		auto& net = current_net;
@@ -1362,6 +1589,7 @@ namespace Proc {
 	//* Get detailed info for selected process
 	void _collect_details(const size_t pid, const uint64_t uptime, vector<proc_info>& procs) {
 		return;
+		std::lock_guard<std::mutex> lck(WMImutex);
 		//fs::path pid_path = Shared::procPath / std::to_string(pid);
 
 		//if (pid != detailed.last_pid) {
@@ -1477,7 +1705,6 @@ namespace Proc {
 		FILETIME st;
 		::GetSystemTimeAsFileTime(&st);
 		const uint64_t systime = ULARGE_INTEGER{ st.dwLowDateTime, st.dwHighDateTime }.QuadPart;
-		//const uint64_t uptime = ULARGE_INTEGER{ systime.dwLowDateTime, systime.dwHighDateTime}.QuadPart - GetTickCount64();
 
 		const int cmult = (per_core) ? Shared::coreCount : 1;
 		bool got_detailed = false;
@@ -1488,32 +1715,10 @@ namespace Proc {
 		}
 		//* ---------------------------------------------Collection start----------------------------------------------
 		else {
+			std::lock_guard<std::mutex> lck(WMImutex);
 			should_filter = true;
 
 			auto totalMem = Mem::totalMem;
-
-	//		int totalMem_len = to_string(totalMem >> 10).size();
-
-	//		//? Update uid_user map if /etc/passwd changed since last run
-	//		if (not Shared::passwd_path.empty() and fs::last_write_time(Shared::passwd_path) != passwd_time) {
-	//			string r_uid, r_user;
-	//			passwd_time = fs::last_write_time(Shared::passwd_path);
-	//			uid_user.clear();
-	//			pread.open(Shared::passwd_path);
-	//			if (pread.good()) {
-	//				while (pread.good()) {
-	//					getline(pread, r_user, ':');
-	//					pread.ignore(SSmax, ':');
-	//					getline(pread, r_uid, ':');
-	//					uid_user[r_uid] = r_user;
-	//					pread.ignore(SSmax, '\n');
-	//				}
-	//			}
-	//			else {
-	//				Shared::passwd_path.clear();
-	//			}
-	//			pread.close();
-	//		}
 
 			//? Get cpu total times
 			if (FILETIME idle, kernel, user; GetSystemTimes(&idle, &kernel, &user)) {
@@ -1525,9 +1730,7 @@ namespace Proc {
 				throw std::runtime_error("Proc::collect() -> GetSystemTimes() failed!");
 			}
 			
-			
-
-			//? Iterate over all pids in /proc
+			//? Iterate over all processes
 			vector<size_t> found;		
 			HandleWrapper pSnap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
 
@@ -1545,16 +1748,13 @@ namespace Proc {
 			}
 
 			do {
-				
-				size_t pid = pe.th32ProcessID;
-				if (pid == 0) continue;
-
-				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID));
-				//if (not pHandle.valid) continue;
-				
-			
 				if (Runner::stopping)
 					return current_procs;
+
+				size_t pid = pe.th32ProcessID;
+				if (pid == 0) continue;
+				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pe.th32ProcessID));
+				const bool hasWMI = WMIList.contains(pid);
 				
 				found.push_back(pid);
 
@@ -1570,44 +1770,48 @@ namespace Proc {
 				auto& new_proc = *find_old;
 
 				//? Cache values that shouldn't change
-				if (no_cache) {
-					new_proc.name = CW2A(pe.szExeFile);
+				if (no_cache or (hasWMI and not new_proc.WMI)) {
+					new_proc.name = b2str(pe.szExeFile);
 					
-					new_proc.cmd = new_proc.name;
-					if (new_proc.cmd.size() > 1000) {
-						new_proc.cmd.resize(1000);
-						break;
+					if (hasWMI) {
+						new_proc.cmd = b2str(WMIList.at(pid).CommandLine);
+						if (new_proc.cmd.empty())
+							new_proc.cmd = b2str(WMIList.at(pid).ExecutablePath);
 					}
+					if (new_proc.cmd.empty()) new_proc.cmd = new_proc.name;
 
 					new_proc.name = new_proc.name.substr(0, new_proc.name.find_last_of('.'));
 
 					new_proc.ppid = pe.th32ParentProcessID;
 
-					//if (pHandle() == NULL) new_proc.user = "invalid";
-					
-					/*SID_NAME_USE peUse;
-					DWORD cchName = 0;
-					DWORD cchRefDomain = 0;
-
-					new_proc.user = "unknown";
-					
-					LookupAccountSidW(nullptr, process.pUserSid, nullptr, &cchName, nullptr, &cchRefDomain, &peUse);
-					
-					vector<wchar_t> Name(cchName + 1);
-					vector<wchar_t> RefDomain(cchRefDomain + 1);
-					if (LookupAccountSidW(nullptr, &process.pUserSid, Name.data(), &cchName, RefDomain.data(), &cchRefDomain, &peUse)) {
-						new_proc.user = string(CW2A(Name.data()));
+					if (pHandle.valid) {
+						HandleWrapper pToken{};
+						if (OpenProcessToken(pHandle.wHandle, TOKEN_QUERY, &pToken.wHandle)) {
+							DWORD dwLength = 0;
+							GetTokenInformation(pToken.wHandle, TokenUser, nullptr, 0, &dwLength);
+							if (dwLength > 0) {
+								std::unique_ptr<BYTE[]> ptu(new BYTE[dwLength]);
+								if (ptu != nullptr and GetTokenInformation(pToken.wHandle, TokenUser, ptu.get(), dwLength, &dwLength)) {
+									SID_NAME_USE SidType;
+									wchar_t lpName[260];
+									wchar_t lpDomain[260];
+									DWORD dwSize = 260;
+									if (LookupAccountSid(0, ((PTOKEN_USER)ptu.get())->User.Sid, lpName, &dwSize, lpDomain, &dwSize, &SidType)) {
+										new_proc.user = b2str(lpName);
+									}
+								}
+							}
+						}
 					}
-					else {
-						new_proc.user = to_string(GetLastError());
-					}*/
+					if (new_proc.user.empty()) new_proc.user = "******";
+					new_proc.WMI = hasWMI;
 				}
 
 				new_proc.threads = pe.cntThreads;
 				
 
+				uint64_t cpu_t = 0;
 				if (pHandle.valid) {
-
 					//? Process memory
 					if (PROCESS_MEMORY_COUNTERS_EX pmem; GetProcessMemoryInfo(pHandle(), (PROCESS_MEMORY_COUNTERS *)&pmem, sizeof(PROCESS_MEMORY_COUNTERS_EX))) {
 						new_proc.mem = pmem.PrivateUsage;
@@ -1615,102 +1819,31 @@ namespace Proc {
 					
 					//? Process cpu stats
 					if (FILETIME createT, exitT, kernelT, userT; GetProcessTimes(pHandle(), &createT, &exitT, &kernelT, &userT)) {
-
 						new_proc.cpu_s = ULARGE_INTEGER{ createT.dwLowDateTime, createT.dwHighDateTime }.QuadPart;
-						const uint64_t cpu_t = ULARGE_INTEGER{ kernelT.dwLowDateTime, kernelT.dwHighDateTime }.QuadPart + ULARGE_INTEGER{ userT.dwLowDateTime, userT.dwHighDateTime }.QuadPart;
-
-						//? Process cpu usage since last update
-						new_proc.cpu_p = clamp(round(cmult * 100 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
-
-						//? Process cumulative cpu usage since process start
-						new_proc.cpu_c = (double)cpu_t / max(1ull, systime - new_proc.cpu_s);
-
-						//? Update cached value with latest cpu times
-						new_proc.cpu_t = cpu_t;
+						cpu_t = ULARGE_INTEGER{ kernelT.dwLowDateTime, kernelT.dwHighDateTime }.QuadPart + ULARGE_INTEGER{ userT.dwLowDateTime, userT.dwHighDateTime }.QuadPart;
 					}
 				}
+				else if (hasWMI) {
+					//? Process memory and cpu from background WMI thread
+					new_proc.mem = _wtoi64(WMIList.at(pid).PrivateMemory);
+					new_proc.cpu_s = cim2ui64(WMIList.at(pid).CreationDate);
+					cpu_t = _wtoi64(WMIList.at(pid).KernelModeTime) + _wtoi64(WMIList.at(pid).UserModeTime);
+				}
 
-	//			//? Parse /proc/[pid]/stat
-	//			pread.open(d.path() / "stat");
-	//			if (not pread.good()) continue;
 
-	//			const auto& offset = new_proc.name_offset;
-	//			short_str.clear();
-	//			int x = 0, next_x = 3;
-	//			uint64_t cpu_t = 0;
-	//			try {
-	//				for (;;) {
-	//					while (pread.good() and ++x < next_x + offset) pread.ignore(SSmax, ' ');
-	//					if (not pread.good()) break;
-	//					else getline(pread, short_str, ' ');
+				if (cpu_t != 0) {
+					if (new_proc.cpu_s == 0) new_proc.cpu_t = cpu_t;
+					
+					//? Process cpu usage since last update
+					new_proc.cpu_p = clamp(round(cmult * 100 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
 
-	//					switch (x-offset) {
-	//						case 3: //? Process state
-	//							new_proc.state = short_str.at(0);
-	//							if (new_proc.ppid != 0) next_x = 14;
-	//							continue;
-	//						case 4: //? Parent pid
-	//							new_proc.ppid = stoull(short_str);
-	//							next_x = 14;
-	//							continue;
-	//						case 14: //? Process utime
-	//							cpu_t = stoull(short_str);
-	//							continue;
-	//						case 15: //? Process stime
-	//							cpu_t += stoull(short_str);
-	//							next_x = 19;
-	//							continue;
-	//						case 19: //? Nice value
-	//							new_proc.p_nice = stoull(short_str);
-	//							continue;
-	//						case 20: //? Number of threads
-	//							new_proc.threads = stoull(short_str);
-	//							if (new_proc.cpu_s == 0) {
-	//								next_x = 22;
-	//								new_proc.cpu_t = cpu_t;
-	//							}
-	//							else
-	//								next_x = 24;
-	//							continue;
-	//						case 22: //? Get cpu seconds if missing
-	//							new_proc.cpu_s = stoull(short_str);
-	//							next_x = 24;
-	//							continue;
-	//						case 24: //? RSS memory (can be inaccurate, but parsing smaps increases total cpu usage by ~20x)
-	//							if (cmp_greater(short_str.size(), totalMem_len))
-	//								new_proc.mem = totalMem;
-	//							else
-	//								new_proc.mem = stoull(short_str) * Shared::pageSize;
-	//					}
-	//					break;
-	//				}
+					//? Process cumulative cpu usage since process start
+					new_proc.cpu_c = (double)cpu_t / max(1ull, systime - new_proc.cpu_s);
 
-	//			}
-	//			catch (const std::invalid_argument&) { continue; }
-	//			catch (const std::out_of_range&) { continue; }
+					//? Update cached value with latest cpu times
+					new_proc.cpu_t = cpu_t;
+				}
 
-	//			pread.close();
-
-	//			if (x-offset < 24) continue;
-
-	//			//? Get RSS memory from /proc/[pid]/statm if value from /proc/[pid]/stat looks wrong
-	//			if (new_proc.mem >= totalMem) {
-	//				pread.open(d.path() / "statm");
-	//				if (not pread.good()) continue;
-	//				pread.ignore(SSmax, ' ');
-	//				pread >> new_proc.mem;
-	//				new_proc.mem *= Shared::pageSize;
-	//				pread.close();
-	//			}
-
-	//			//? Process cpu usage since last update
-	//			new_proc.cpu_p = clamp(round(cmult * 1000 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
-
-	//			//? Process cumulative cpu usage since process start
-	//			new_proc.cpu_c = (double)cpu_t / max(1.0, (uptime * Shared::clkTck) - new_proc.cpu_s);
-
-	//			//? Update cached value with latest cpu times
-	//			new_proc.cpu_t = cpu_t;
 
 	//			if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
 	//				got_detailed = true;
@@ -1738,25 +1871,25 @@ namespace Proc {
 		if (sorted_change or not no_update) {
 			if (reverse) {
 				switch (v_index(sort_vector, sorting)) {
-					case 0: rng::stable_sort(current_procs, rng::less{}, &proc_info::pid); 		break;
-					case 1: rng::stable_sort(current_procs, rng::less{}, &proc_info::name);		break;
-					case 2: rng::stable_sort(current_procs, rng::less{}, &proc_info::cmd); 		break;
-					case 3: rng::stable_sort(current_procs, rng::less{}, &proc_info::threads); 	break;
-					case 4: rng::stable_sort(current_procs, rng::less{}, &proc_info::user); 	break;
-					case 5: rng::stable_sort(current_procs, rng::less{}, &proc_info::mem); 		break;
-					case 6: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_p);   	break;
-					case 7: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_c);   	break;
+					case 0: rng::stable_sort(current_procs, rng::less{}, &proc_info::pid); 			break;
+					case 1: rng::stable_sort(current_procs, rng::less{}, &proc_info::name);			break;
+					case 2: rng::stable_sort(current_procs, rng::less{}, &proc_info::cmd); 			break;
+					case 3: rng::stable_sort(current_procs, rng::less{}, &proc_info::threads);		break;
+					case 4: rng::stable_sort(current_procs, rng::less{}, &proc_info::user);			break;
+					case 5: rng::stable_sort(current_procs, rng::less{}, &proc_info::mem); 			break;
+					case 6: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_p);		break;
+					case 7: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_c);		break;
 				}
 			} else {
 				switch (v_index(sort_vector, sorting)) {
-						case 0: rng::stable_sort(current_procs, rng::greater{}, &proc_info::pid); 		break;
-						case 1: rng::stable_sort(current_procs, rng::greater{}, &proc_info::name);		break;
-						case 2: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cmd); 		break;
-						case 3: rng::stable_sort(current_procs, rng::greater{}, &proc_info::threads); 	break;
-						case 4: rng::stable_sort(current_procs, rng::greater{}, &proc_info::user); 	break;
-						case 5: rng::stable_sort(current_procs, rng::greater{}, &proc_info::mem); 		break;
-						case 6: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_p);   	break;
-						case 7: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_c);   	break;
+					case 0: rng::stable_sort(current_procs, rng::greater{}, &proc_info::pid); 		break;
+					case 1: rng::stable_sort(current_procs, rng::greater{}, &proc_info::name);		break;
+					case 2: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cmd); 		break;
+					case 3: rng::stable_sort(current_procs, rng::greater{}, &proc_info::threads); 	break;
+					case 4: rng::stable_sort(current_procs, rng::greater{}, &proc_info::user); 		break;
+					case 5: rng::stable_sort(current_procs, rng::greater{}, &proc_info::mem); 		break;
+					case 6: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_p);   	break;
+					case 7: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_c);   	break;
 				}
 			}
 

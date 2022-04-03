@@ -301,7 +301,7 @@ namespace Runner {
 
 			//! DEBUG stats
 			if (Global::debug) {
-				if (debug_bg.empty() or redraw) Runner::debug_bg = Draw::createBox(2, 2, 32, 8, "", true, "debug");
+				if (debug_bg.empty() or redraw) Runner::debug_bg = Draw::createBox(2, 2, 32, 9, "", true, "debug");
 				debug_times.clear();
 				debug_times["total"] = {0, 0};
 			}
@@ -426,13 +426,14 @@ namespace Runner {
 
 			//! DEBUG stats -->
 			if (Global::debug and not Menu::active) {
-				output += debug_bg + Theme::c("title") + Fx::b + ljust(" Box", 9) + ljust("Collect μs", 12, true) + ljust("Draw μs", 9, true) + Theme::c("main_fg") + Fx::ub;
+				output += debug_bg + Theme::c("title") + Fx::b + ljust(" Box", 9) + ljust("Collect us", 12, true) + ljust("Draw us", 9, true) + Theme::c("main_fg") + Fx::ub;
 				for (const string name : {"cpu", "mem", "net", "proc", "total"}) {
 					if (not debug_times.contains(name)) debug_times[name] = {0,0};
 					const auto& [time_collect, time_draw] = debug_times.at(name);
 					if (name == "total") output += Fx::b;
 					output += Mv::l(29) + Mv::d(1) + ljust(name, 8) + ljust(to_string(time_collect), 12) + ljust(to_string(time_draw), 9);
 				}
+				output += Mv::l(29) + Mv::d(1) + ljust("*WMI", 8) + ljust(to_string(Proc::WMItimer), 12) + ljust("0", 9);
 			}
 
 			//? If overlay isn't empty, print output without color and then print overlay on top

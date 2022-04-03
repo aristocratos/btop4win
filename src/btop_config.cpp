@@ -127,8 +127,6 @@ namespace Config {
 
 		{"base_10_sizes",		"#* Use base 10 for bits/bytes sizes, KB = 1000 instead of KiB = 1024."},
 
-		{"show_cpu_freq", 		"#* Show CPU frequency."},
-
 		{"clock_format", 		"#* Draw a clock at top of screen, formatting according to strftime, empty string to disable.\n"
 								"#* Special formatting: /host = hostname | /user = username | /uptime = system uptime"},
 
@@ -228,7 +226,6 @@ namespace Config {
 		{"show_uptime", true},
 		{"check_temp", true},
 		{"show_coretemp", true},
-		{"show_cpu_freq", true},
 		{"background_update", true},
 		{"mem_graphs", true},
 		{"mem_below_net", false},

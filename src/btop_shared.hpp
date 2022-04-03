@@ -118,8 +118,8 @@ namespace Mem {
 	extern string box;
 	extern int x, y, width, height, min_width, min_height;
 	extern bool has_swap, shown, redraw;
-	const array<string, 4> mem_names = {"used", "available", "virtual", "free"};
-	const array<string, 2> swap_names = {"page_used", "page_free"};
+	//const array<string, 4> mem_names = {"used", "available", "virtual", "free"};
+	//const array<string, 2> swap_names = {"page_used", "page_free"};
 	extern int disk_ios;
 	extern int64_t totalMem;
 
@@ -137,11 +137,11 @@ namespace Mem {
 
 	struct mem_info {
 		unordered_flat_map<string, uint64_t> stats =
-			{{"used", 0}, {"available", 0}, {"virtual", 0}, {"free", 0},
+		{ {"total", 0}, {"used", 0}, {"available", 0}, {"commit", 0}, {"commit_total", 0}, {"cached", 0},
 			{"page_total", 0}, {"page_used", 0}, {"page_free", 0}};
 		unordered_flat_map<string, deque<long long>> percent =
-			{{"used", {}}, {"available", {}}, {"virtual", {}}, {"free", {}},
-			{"page_total", {}}, {"page_used", {}}, {"page_free", {}}};
+			{{"used", {}}, {"available", {}}, {"commit", {}}, {"cached", 0},
+			{"page_used", {}}, {"page_free", {}}};
 		unordered_flat_map<string, disk_info> disks;
 		vector<string> disks_order;
 	};
@@ -192,6 +192,7 @@ namespace Proc {
 	extern atomic<int> detailed_pid;
 	extern int selected_pid, start, selected, collapse, expand;
 	extern string selected_name;
+	extern atomic<uint64_t> WMItimer;
 
 	//? Contains the valid sorting options for processes
 	const vector<string> sort_vector = {
@@ -230,10 +231,10 @@ namespace Proc {
 		uint64_t mem = 0;
 		double cpu_p = 0.0, cpu_c = 0.0;
 		char state = '0';
-		uint64_t p_nice = 0, ppid = 0, cpu_s = 0, cpu_t = 0;
+		uint64_t ppid = 0, cpu_s = 0, cpu_t = 0, p_nice = 0;
 		string prefix = "";
 		size_t depth = 0, tree_index = 0;
-		bool collapsed = false, filtered = false;
+		bool collapsed = false, filtered = false, WMI = false;
 	};
 
 	//* Container for process info box

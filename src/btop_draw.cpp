@@ -602,11 +602,7 @@ namespace Cpu {
 				+ Theme::c("graph_text") + "up" + Mv::r(1) + upstr;
 		}
 
-		//? Cpu clock and cpu meter
-		if (Config::getB("show_cpu_freq") and not cpuHz.empty())
-			out += Mv::to(b_y, b_x + b_width - 10) + Fx::ub + Theme::c("div_line") + Symbols::h_line * (7 - cpuHz.size())
-				+ Symbols::title_left + Fx::b + Theme::c("title") + cpuHz + Fx::ub + Theme::c("div_line") + Symbols::title_right;
-
+		//? Cpu meter
 		out += Mv::to(b_y + 1, b_x + 1) + Theme::c("main_fg") + Fx::b + "CPU " + cpu_meter(cpu.cpu_percent.at("total").back())
 			+ Theme::g("cpu").at(clamp(cpu.cpu_percent.at("total").back(), 0ll, 100ll)) + rjust(to_string(cpu.cpu_percent.at("total").back()), 4) + Theme::c("main_fg") + '%';
 		if (show_temps) {
@@ -714,15 +710,17 @@ namespace Mem {
 			io_graphs.clear();
 
 			//? Mem graphs and meters
-			for (const auto& name : mem_names) {
-
+			
+			for (const string& name : { "used", "available", "cached", "commit" }) {
+				const string color = (name == "commit" ? "free" : name);
 				if (use_graphs)
-					mem_graphs[name] = Draw::Graph{mem_meter, graph_height, name, mem.percent.at(name), graph_symbol};
+					mem_graphs[name] = Draw::Graph{mem_meter, graph_height, color, mem.percent.at(name), graph_symbol};
 				else
-					mem_meters[name] = Draw::Meter{mem_meter, name};
+					mem_meters[name] = Draw::Meter{ mem_meter, color };
 			}
+			
 			if (show_swap and has_swap) {
-				for (const auto& name : swap_names) {
+				for (const string& name : {"page_used", "page_free"}) {
 					if (use_graphs)
 						mem_graphs[name] = Draw::Graph{mem_meter, graph_height, name.substr(5), mem.percent.at(name), graph_symbol};
 					else
@@ -759,7 +757,7 @@ namespace Mem {
 
 						if (io_mode) {
 							//? Create one combined graph for IO read/write if enabled
-							long long speed = (custom_speeds.contains(name) ? custom_speeds.at(name) : 100) << 20;
+							long long speed = static_cast<long long>(custom_speeds.contains(name) ? custom_speeds.at(name) : 100) << 20;
 							if (io_graph_combined) {
 								deque<long long> combined(disk.io_read.size(), 0);
 								rng::transform(disk.io_read, disk.io_write, combined.begin(), std::plus<long long>());
@@ -795,26 +793,27 @@ namespace Mem {
 		bool big_mem = mem_width > 21;
 
 		out += Mv::to(y + 1, x + 2) + Theme::c("title") + Fx::b + "Total:" + rjust(floating_humanizer(Mem::totalMem), mem_width - 9) + Fx::ub + Theme::c("main_fg");
-		vector<string> comb_names (mem_names.begin(), mem_names.end());
-		if (show_swap and has_swap and not swap_disk) comb_names.insert(comb_names.end(), swap_names.begin(), swap_names.end());
+		vector<string> comb_names = {"used", "available", "cached", "commit"};
+		if (show_swap and has_swap and not swap_disk) comb_names.insert(comb_names.end(), { "page_used", "page_free" });
 		for (auto name : comb_names) {
 			if (cy > height - 4) break;
 			string title;
 			if (name == "page_used") {
 				if (cy > height - 5) break;
-				if (height - cy > 6) {
-					if (graph_height > 0) out += Mv::to(y+1+cy, x+1+cx) + divider;
+				if (cy > 0 and height - cy > 6) {
+					if (graph_height > 0) out += Mv::to(y + 1 + cy, x + 1 + cx) + divider;
 					cy += 1;
 				}
-				out += Mv::to(y+1+cy, x+1+cx) + Theme::c("title") + Fx::b + "Page:" + rjust(floating_humanizer(mem.stats.at("page_total")), mem_width - 8)
-					+ Theme::c("main_fg") + Fx::ub;
+				out += Mv::to(y + 1 + cy, x + 1 + cx) + Theme::c("title") + Fx::b + "Pagefiles:"
+					+ rjust(floating_humanizer(mem.stats.at("page_total")), mem_width - 13) + Theme::c("main_fg") + Fx::ub;
 				cy += 1;
 				title = "Used";
 			}
 			else if (name == "page_free")
 				title = "Free";
+			else
+				title = capitalize(name);
 
-			if (title.empty()) title = capitalize(name);
 			const string humanized = floating_humanizer(mem.stats.at(name));
 			const string graphics = (use_graphs ? mem_graphs.at(name)(mem.percent.at(name), redraw or data_same) : mem_meters.at(name)(mem.percent.at(name).back()));
 			if (mem_size > 2) {
@@ -1568,7 +1567,7 @@ namespace Draw {
 			box = createBox(x, y, width, height, Theme::c("cpu_box"), true, (cpu_bottom ? "" : "cpu"), (cpu_bottom ? "cpu" : ""), 1);
 
 			auto& custom = Config::getS("custom_cpu_name");
-			const string cpu_title = uresize((custom.empty() ? Cpu::cpuName : custom) , b_width - 14);
+			const string cpu_title = uresize((custom.empty() ? Cpu::cpuName : custom) , b_width - 5);
 			box += createBox(b_x, b_y, b_width, b_height, "", false, cpu_title);
 		}
 
