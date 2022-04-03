@@ -211,7 +211,7 @@ namespace Config {
 	unordered_flat_map<string, bool> bools = {
 		{"theme_background", true},
 		{"truecolor", true},
-		{"rounded_corners", false},
+		{"rounded_corners", true},
 		{"proc_reversed", false},
 		{"proc_tree", false},
 		{"proc_colors", true},

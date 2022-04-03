@@ -60,6 +60,12 @@ Needs Windows 10 version 1607 (Anniversary Update) for ANSI escape sequences to 
 
 Will run on Windows 7 or later but requires custom terminal software that supports ANSI escape sequences.
 
+Notes:
+
+The default symbols for graphs are set to TTY for best compatibility with Windows fonts, for braille and block symbols get custom fonts.
+
+See [Terminess Powerline](https://github.com/ryanoasis/nerd-fonts/tree/master/patched-fonts/Terminus/terminus-ttf-4.40.1) for a font that includes the braille symbols.
+
 ## Features
 
 * Easy to use, with a game inspired menu system.
