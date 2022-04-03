@@ -66,9 +66,9 @@ namespace Tools {
 		HANDLE wHandle;
 		bool valid = false;
 		HandleWrapper() : wHandle(nullptr) { ; }
-		HandleWrapper(HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE && wHandle != NULL); }
+		HandleWrapper(HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE); }
 		auto operator()() { return wHandle; }
-		~HandleWrapper() { CloseHandle(wHandle); }
+		~HandleWrapper() { if (wHandle != nullptr) CloseHandle(wHandle); }
 	};
 
 	//? Set security modes for better chance of collecting process information
@@ -140,12 +140,8 @@ namespace Shared {
 
 	IWbemLocator* WbemLocator;
 	IWbemServices* WbemServices;
-	/*IWbemClassObject* getClass;
-	IWbemClassObject* WbemGetOwner;
-	IWbemClassObject* WbemGetOwnerInstance;*/
 
 	void WMI_init() {
-
 		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoInitializeEx() failed with code: " + to_string(hr));
 		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr))
@@ -156,20 +152,14 @@ namespace Shared {
 			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
 		if (auto hr = CoSetProxyBlanket(WbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHN_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
-		/*if (auto hr = WbemServices->GetObject(_bstr_t(L"Win32_Process"), 0, NULL, &getClass, NULL); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> bemServices->GetObject() failed with code: " + to_string(hr));
-		if (auto hr = getClass->GetMethod(_bstr_t("GetOwner"), 0, NULL, &WbemGetOwner); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> getClass->GetMethod() failed with code: " + to_string(hr));
-		if (auto hr = WbemGetOwner->SpawnInstance(0, &WbemGetOwnerInstance); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> WbemGetOwner->SpawnInstance() failed with code: " + to_string(hr));*/
 	}
 
 	class WbemEnumerator {
 	public:
-		IEnumWbemClassObject* WbEnum = NULL;
+		IEnumWbemClassObject* WbEnum = nullptr;
 		WbemEnumerator() { ; }
 		auto operator()() { return WbEnum; }
-		~WbemEnumerator() { WbEnum->Release(); }
+		~WbemEnumerator() { if (WbEnum != nullptr) WbEnum->Release(); }
 	};
 
 	class WMIObjectReleaser {
@@ -306,23 +296,20 @@ namespace Proc {
 		_bstr_t PrivateMemory = L"PrivatePageCount";
 		_bstr_t ReadTransferCount = L"ReadTransferCount";
 		_bstr_t WriteTransferCount = L"WriteTransferCount";
-		_bstr_t Win32 = L"Win32_Process";
-		_bstr_t Handler = L"Win32_Process.Handle=";
-		_bstr_t GetOwner = L"GetOwner";
-		_bstr_t User = L"User";
 	};
 
 	atomic<uint64_t> WMItimer = 0;
 	robin_hood::unordered_flat_map<size_t, WMIEntry> WMIList;
 	std::mutex WMImutex;
 
+	//? WMI thread, collects process information once every second to augment missing information from the standard WIN32 API methods
 	void WMIProcs() {
 		WMIQuerys Q{};
 		while (not Global::quitting) {
 			auto timeStart = time_micros();
 			Shared::WbemEnumerator WMI;
 
-			if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, NULL, &WMI.WbEnum); FAILED(hr) or WMI() == NULL) {
+			if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
 				throw std::runtime_error("Proc::WMIProcs() [thread] -> WbemServices query failed with code: " + to_string(hr));
 			}
 
@@ -341,7 +328,6 @@ namespace Proc {
 					pid = ProcessId()->uintVal;
 				}
 				if (pid == 0) continue;
-				//_bstr_t pid_str = _bstr_t(to_string(pid).c_str());
 
 				newWMIList[pid] = {};
 				auto& entry = newWMIList.at(pid);
@@ -395,52 +381,6 @@ namespace Proc {
 					if (result->Get(Q.WriteTransferCount, 0, &WriteTransferCount.val, 0, 0) == S_OK)
 						entry.WriteTransferCount = WriteTransferCount()->bstrVal;
 				}
-				//_bstr_t p_path;
-				////Logger::debug("1");
-				//{
-				//	Shared::VariantWrap Path{};
-				//	if (result->Get(Q.PATH, 0, &Path.val, 0, 0) == S_OK)
-				//		p_path = Path()->bstrVal;
-				//}
-				//{
-				//	//IWbemClassObject* GetOwnerIn = NULL;
-				//	
-				//	_bstr_t handle = Q.Handler + _bstr_t(std::to_wstring(pid).c_str());
-				//	
-				//	
-				//	Shared::WbemClassObject pClass{};
-				//	if (Shared::WbemServices->GetObject(Q.Win32, 0, 0, &pClass.Object, 0) == S_OK) {
-				//		Shared::WbemClassObject GetOwnerIn{};
-				//		Shared::WbemClassObject GetOwnerOut{};
-				//		if (pClass()->GetMethod(Q.GetOwner, 0, &GetOwnerIn.Object, &GetOwnerOut.Object) == S_OK) {
-				//			Shared::WbemClassObject pOutParams{};
-				//			if (Shared::WbemServices->ExecMethod(handle, Q.GetOwner, WBEM_FLAG_FORWARD_ONLY, 0, GetOwnerIn.Object, &pOutParams.Object, 0) == S_OK) {
-				//				Shared::VariantWrap Username{};
-				//				if (pOutParams()->Get(Q.User, 0, &Username.val, 0, 0) == S_OK) {
-				//					entry.Username = Username()->bstrVal;
-				//					//Logger::debug(b2str(entry.Username));
-				//					//exit(0);
-				//				}
-				//			}
-				//		}
-				//	}
-				//	
-				//}
-				//if (iii++ >= 200 and iii % 2 == 0) {
-				//	Logger::debug(
-				//		"Proc=" + ljust(b2str(entry.Name), 10) + " " +
-				//		"CMD=" + ljust(b2str(entry.CommandLine), 20) + " " +
-				//		"Path=" + ljust(b2str(entry.ExecutablePath), 20) + " " +
-				//		"Kernel=" + ljust(b2str(entry.KernelModeTime), 20) + " " +
-				//		"User=" + ljust(b2str(entry.UserModeTime), 20) + " " +
-				//		"Create=" + ljust(b2str(entry.CreationDate), 20) + " " +
-				//		"Pmem=" + ljust(b2str(entry.PrivateMemory), 20) + " " +
-				//		"Thread=" + ljust(to_string(entry.ThreadCount), 5) + " " +
-				//		"Read=" + ljust(b2str(entry.ReadTransferCount), 20) + " " +
-				//		"Write=" + ljust(b2str(entry.WriteTransferCount), 20) + " "
-				//	);
-				//	if (iii >= 250) exit(0);
-				//}
 			}
 
 			auto timeDone = time_micros();
@@ -452,7 +392,7 @@ namespace Proc {
 				Proc::WMItimer = timeSpent;
 			}
 
-			auto timeNext = timeDone + 1'000'000;
+			auto timeNext = timeStart + 1'000'000;
 			if (auto timeNow = time_micros(); timeNext > timeNow) 
 				sleep_micros(timeNext - timeNow);
 		}
@@ -1092,6 +1032,12 @@ namespace Mem {
 
 		mem.stats.at("page_total") = static_cast<int64_t>(memstat.ullTotalPageFile) - totalMem;
 		mem.stats.at("page_free") = static_cast<int64_t>(memstat.ullAvailPageFile);
+		if (mem.stats.at("page_total") < mem.stats.at("page_free")) {
+			mem.stats.at("page_total") += mem.stats.at("page_free");
+			mem.pagevirt = true;
+		}
+		else
+			mem.pagevirt = false;
 		mem.stats.at("page_used") = mem.stats.at("page_total") - mem.stats.at("page_free");
 
 		//? Calculate percentages

@@ -144,6 +144,7 @@ namespace Mem {
 			{"page_used", {}}, {"page_free", {}}};
 		unordered_flat_map<string, disk_info> disks;
 		vector<string> disks_order;
+		bool pagevirt = false;
 	};
 
 	//* Collect mem & disks stats

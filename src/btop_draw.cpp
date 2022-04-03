@@ -804,7 +804,7 @@ namespace Mem {
 					if (graph_height > 0) out += Mv::to(y + 1 + cy, x + 1 + cx) + divider;
 					cy += 1;
 				}
-				out += Mv::to(y + 1 + cy, x + 1 + cx) + Theme::c("title") + Fx::b + "Pagefiles:"
+				out += Mv::to(y + 1 + cy, x + 1 + cx) + Theme::c("title") + Fx::b + (mem.pagevirt ? "Page+Virt:" : "Pagefiles:")
 					+ rjust(floating_humanizer(mem.stats.at("page_total")), mem_width - 13) + Theme::c("main_fg") + Fx::ub;
 				cy += 1;
 				title = "Used";
