@@ -276,11 +276,11 @@ namespace Draw {
 			{"/host", Tools::hostname()},
 			{"/uptime", ""}
 		};
-		static time_t c_time = 0;
+		static uint64_t c_time = 0;
 		static size_t clock_len = 0;
 		static string clock_str;
 
-		if (auto n_time = time(NULL); not force and n_time == c_time)
+		if (auto n_time = time_ms() / 1000; not force and n_time == c_time)
 			return false;
 		else {
 			c_time = n_time;
@@ -711,7 +711,7 @@ namespace Mem {
 
 			//? Mem graphs and meters
 			
-			for (const string& name : { "used", "available", "cached", "commit" }) {
+			for (const string name : { "used", "available", "cached", "commit" }) {
 				const string color = (name == "commit" ? "free" : name);
 				if (use_graphs)
 					mem_graphs[name] = Draw::Graph{mem_meter, graph_height, color, mem.percent.at(name), graph_symbol};
@@ -720,7 +720,7 @@ namespace Mem {
 			}
 			
 			if (show_swap and has_swap) {
-				for (const string& name : {"page_used", "page_free"}) {
+				for (const string name : {"page_used", "page_free"}) {
 					if (use_graphs)
 						mem_graphs[name] = Draw::Graph{mem_meter, graph_height, name.substr(5), mem.percent.at(name), graph_symbol};
 					else
@@ -795,7 +795,7 @@ namespace Mem {
 		out += Mv::to(y + 1, x + 2) + Theme::c("title") + Fx::b + "Total:" + rjust(floating_humanizer(Mem::totalMem), mem_width - 9) + Fx::ub + Theme::c("main_fg");
 		vector<string> comb_names = {"used", "available", "cached", "commit"};
 		if (show_swap and has_swap and not swap_disk) comb_names.insert(comb_names.end(), { "page_used", "page_free" });
-		for (auto name : comb_names) {
+		for (const auto& name : comb_names) {
 			if (cy > height - 4) break;
 			string title;
 			if (name == "page_used") {
@@ -1183,7 +1183,7 @@ namespace Proc {
 
 				//? Labels
 				const int item_fit = floor((double)(d_width - 2) / 10);
-				const int item_width = floor((double)(d_width - 2) / min(item_fit, 8));
+				const int item_width = floor((double)(d_width - 2) / min(item_fit, 7));
 				out += Mv::to(d_y + 1, d_x + 1) + Fx::b + Theme::c("title")
 										+ cjust("Status:", item_width)
 										+ cjust("Elapsed:", item_width);
@@ -1192,7 +1192,7 @@ namespace Proc {
 				if (item_fit >= 5) out += cjust("Parent:", item_width);
 				if (item_fit >= 6) out += cjust("User:", item_width);
 				if (item_fit >= 7) out += cjust("Threads:", item_width);
-				if (item_fit >= 8) out += cjust("Nice:", item_width);
+				//if (item_fit >= 8) out += cjust("Nice:", item_width);
 
 
 				//? Command line
@@ -1292,7 +1292,7 @@ namespace Proc {
 		if (show_detailed) {
 			const bool alive = detailed.status != "Dead";
 			const int item_fit = floor((double)(d_width - 2) / 10);
-			const int item_width = floor((double)(d_width - 2) / min(item_fit, 8));
+			const int item_width = floor((double)(d_width - 2) / min(item_fit, 7));
 
 			//? Graph part of box
 			string cpu_str = (alive ? to_string(detailed.entry.cpu_p) : "");
@@ -1315,7 +1315,7 @@ namespace Proc {
 			if (item_fit >= 5) out += cjust(detailed.parent, item_width, true);
 			if (item_fit >= 6) out += cjust(detailed.entry.user, item_width, true);
 			if (item_fit >= 7) out += cjust(to_string(detailed.entry.threads), item_width);
-			if (item_fit >= 8) out += cjust(to_string(detailed.entry.p_nice), item_width);
+			//if (item_fit >= 8) out += cjust(to_string(detailed.entry.p_nice), item_width);
 
 
 			const double mem_p = (double)detailed.mem_bytes.back() * 100 / Mem::totalMem;

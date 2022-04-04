@@ -22,7 +22,6 @@ tab-size = 4
 #include <numeric>
 #include <mutex>
 #include <chrono>
-#include <date.h>
 
 #define _WIN32_DCOM
 #define _WIN32_WINNT 0x0600
@@ -71,7 +70,7 @@ namespace Tools {
 		~HandleWrapper() { if (wHandle != nullptr) CloseHandle(wHandle); }
 	};
 
-	//? Set security modes for better chance of collecting process information
+	//? Set security mode for better chance of collecting process information
 	//? Based on code from psutil
 	//? See: https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/security.c
 	void setWinDebug() {
@@ -113,26 +112,11 @@ namespace Tools {
 
 		RevertToSelf();
 	}
-	string b2str(BSTR source) {
-		if (source == NULL) return "";
+
+	string bstr2str(BSTR source) {
+		if (source == nullptr) return "";
 		_bstr_t wrapped_bstr = _bstr_t(source);
 		return string(CW2A(wrapped_bstr));
-	}
-
-	uint64_t cim2ui64(_bstr_t& cim_bstr_t) {
-		using namespace std::chrono;
-		string str = b2str(cim_bstr_t);
-		const uint64_t yyyy = atoi(str.substr(0, 4).c_str());
-		const uint64_t MM = atoi(str.substr(4, 2).c_str());
-		const uint64_t DD = atoi(str.substr(6, 2).c_str());
-		const uint64_t HH = atoi(str.substr(8, 2).c_str());
-		const uint64_t MI = atoi(str.substr(10, 2).c_str());
-		const uint64_t SS = atoi(str.substr(12, 2).c_str());
-		const uint64_t ssssss = atoi(str.substr(15, 6).c_str());
-		return time_point<system_clock,microseconds>(
-			sys_days{ date::year(yyyy) / MM / DD }
-			+ hours{ HH } + minutes{ MI } + seconds{ SS } + microseconds{ ssssss }
-		).time_since_epoch().count();
 	}
 }
 
@@ -140,6 +124,7 @@ namespace Shared {
 
 	IWbemLocator* WbemLocator;
 	IWbemServices* WbemServices;
+	ISWbemDateTime* WbemDateTime;
 
 	void WMI_init() {
 		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
@@ -151,6 +136,8 @@ namespace Shared {
 		if (auto hr = WbemLocator->ConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, NULL, 0, NULL, NULL, &WbemServices); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
 		if (auto hr = CoSetProxyBlanket(WbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHN_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE); FAILED(hr))
+			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
+		if (auto hr = CoCreateInstance(CLSID_SWbemDateTime, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&WbemDateTime)); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
 	}
 
@@ -274,7 +261,7 @@ namespace Proc {
 		_bstr_t ExecutablePath;
 		_bstr_t KernelModeTime;
 		_bstr_t UserModeTime;
-		_bstr_t CreationDate;
+		uint64_t CreationDate;
 		UINT32 ThreadCount;
 		_bstr_t PrivateMemory;
 		_bstr_t ReadTransferCount;
@@ -358,8 +345,12 @@ namespace Proc {
 				}
 				{
 					Shared::VariantWrap CreationDate{};
-					if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK)
-						entry.CreationDate = CreationDate()->bstrVal;
+					if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK) {
+						Shared::WbemDateTime->put_Value(CreationDate()->bstrVal);
+						_bstr_t bstrFileTime;
+						if (SUCCEEDED(Shared::WbemDateTime->GetFileTime(VARIANT_TRUE, bstrFileTime.GetAddress())))
+							entry.CreationDate = _wtoi64(bstrFileTime);
+					}
 				}
 				{
 					Shared::VariantWrap ThreadCount{};
@@ -1041,14 +1032,14 @@ namespace Mem {
 		mem.stats.at("page_used") = mem.stats.at("page_total") - mem.stats.at("page_free");
 
 		//? Calculate percentages
-		for (const string& name : { "used", "available", "cached", "commit"}) {
+		for (const string name : { "used", "available", "cached", "commit"}) {
 			mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / (name == "commit" ? totalCommit : totalMem)));
 			while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
 		}
 		
 
 		if (show_swap and mem.stats.at("page_total") > 0) {
-			for (const auto& name : {"page_used", "page_free"}) {
+			for (const auto name : {"page_used", "page_free"}) {
 				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("page_total")));
 				while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
 			}
@@ -1534,101 +1525,52 @@ namespace Proc {
 
 	//* Get detailed info for selected process
 	void _collect_details(const size_t pid, const uint64_t uptime, vector<proc_info>& procs) {
-		return;
-		std::lock_guard<std::mutex> lck(WMImutex);
-		//fs::path pid_path = Shared::procPath / std::to_string(pid);
 
-		//if (pid != detailed.last_pid) {
-		//	detailed = {};
-		//	detailed.last_pid = pid;
-		//	detailed.skip_smaps = not Config::getB("proc_info_smaps");
-		//}
+		if (pid != detailed.last_pid) {
+			detailed = {};
+			detailed.last_pid = pid;
+			detailed.status = "Running";
+		}
 
-		////? Copy proc_info for process from proc vector
-		//auto p_info = rng::find(procs, pid, &proc_info::pid);
-		//detailed.entry = *p_info;
+		//? Copy proc_info for process from proc vector
+		auto p_info = rng::find(procs, pid, &proc_info::pid);
+		detailed.entry = *p_info;
 
-		////? Update cpu percent deque for process cpu graph
-		//if (not Config::getB("proc_per_core")) detailed.entry.cpu_p *= Shared::coreCount;
-		//detailed.cpu_percent.push_back(clamp((long long)round(detailed.entry.cpu_p), 0ll, 100ll));
-		//while (cmp_greater(detailed.cpu_percent.size(), width)) detailed.cpu_percent.pop_front();
+		//? Update cpu percent deque for process cpu graph
+		if (not Config::getB("proc_per_core")) detailed.entry.cpu_p *= Shared::coreCount;
+		detailed.cpu_percent.push_back(clamp((long long)round(detailed.entry.cpu_p), 0ll, 100ll));
+		while (cmp_greater(detailed.cpu_percent.size(), width)) detailed.cpu_percent.pop_front();
 
-		////? Process runtime
-		//detailed.elapsed = sec_to_dhms(uptime - (detailed.entry.cpu_s / Shared::clkTck));
-		//if (detailed.elapsed.size() > 8) detailed.elapsed.resize(detailed.elapsed.size() - 3);
+		//? Process runtime
+		if (detailed.entry.cpu_s > 0) {
+			detailed.elapsed = sec_to_dhms((uptime - detailed.entry.cpu_s) / 10'000'000);
+			if (detailed.elapsed.size() > 8) detailed.elapsed.resize(detailed.elapsed.size() - 3);
+		}
+		else {
+			detailed.elapsed = "unknown";
+		}
 
-		////? Get parent process name
-		//if (detailed.parent.empty()) {
-		//	auto p_entry = rng::find(procs, detailed.entry.ppid, &proc_info::pid);
-		//	if (p_entry != procs.end()) detailed.parent = p_entry->name;
-		//}
+		//? Get parent process name
+		if (detailed.parent.empty()) {
+			auto p_entry = rng::find(procs, detailed.entry.ppid, &proc_info::pid);
+			if (p_entry != procs.end()) detailed.parent = p_entry->name;
+		}
+		
+		detailed.mem_bytes.push_back(detailed.entry.mem);
+		detailed.memory = floating_humanizer(detailed.entry.mem);
+		
+		if (detailed.first_mem == -1 or detailed.first_mem < detailed.mem_bytes.back() / 2 or detailed.first_mem > detailed.mem_bytes.back() * 4) {
+			detailed.first_mem = min(detailed.mem_bytes.back() * 2, Mem::totalMem);
+			redraw = true;
+		}
 
-		////? Expand process status from single char to explanative string
-		//detailed.status = (proc_states.contains(detailed.entry.state)) ? proc_states.at(detailed.entry.state) : "Unknown";
+		while (cmp_greater(detailed.mem_bytes.size(), width)) detailed.mem_bytes.pop_front();
 
-		//ifstream d_read;
-		//string short_str;
-
-		////? Try to get RSS mem from proc/[pid]/smaps
-		//detailed.memory.clear();
-		//if (not detailed.skip_smaps and fs::exists(pid_path / "smaps")) {
-		//	d_read.open(pid_path / "smaps");
-		//	uint64_t rss = 0;
-		//	try {
-		//		while (d_read.good()) {
-		//			d_read.ignore(SSmax, 'R');
-		//			if (d_read.peek() == 's') {
-		//				d_read.ignore(SSmax, ':');
-		//				getline(d_read, short_str, 'k');
-		//				rss += stoull(short_str);
-		//			}
-		//		}
-		//		if (rss == detailed.entry.mem >> 10)
-		//			detailed.skip_smaps = true;
-		//		else {
-		//			detailed.mem_bytes.push_back(rss << 10);
-		//			detailed.memory = floating_humanizer(rss, false, 1);
-		//		}
-		//	}
-		//	catch (const std::invalid_argument&) {}
-		//	catch (const std::out_of_range&) {}
-		//	d_read.close();
-		//}
-		//if (detailed.memory.empty()) {
-		//	detailed.mem_bytes.push_back(detailed.entry.mem);
-		//	detailed.memory = floating_humanizer(detailed.entry.mem);
-		//}
-		//if (detailed.first_mem == -1 or detailed.first_mem < detailed.mem_bytes.back() / 2 or detailed.first_mem > detailed.mem_bytes.back() * 4) {
-		//	detailed.first_mem = min((uint64_t)detailed.mem_bytes.back() * 2, Mem::get_totalMem());
-		//	redraw = true;
-		//}
-
-		//while (cmp_greater(detailed.mem_bytes.size(), width)) detailed.mem_bytes.pop_front();
-
-		////? Get bytes read and written from proc/[pid]/io
-		//if (fs::exists(pid_path / "io")) {
-		//	d_read.open(pid_path / "io");
-		//	try {
-		//		string name;
-		//		while (d_read.good()) {
-		//			getline(d_read, name, ':');
-		//			if (name.ends_with("read_bytes")) {
-		//				getline(d_read, short_str);
-		//				detailed.io_read = floating_humanizer(stoull(short_str));
-		//			}
-		//			else if (name.ends_with("write_bytes")) {
-		//				getline(d_read, short_str);
-		//				detailed.io_write = floating_humanizer(stoull(short_str));
-		//				break;
-		//			}
-		//			else
-		//				d_read.ignore(SSmax, '\n');
-		//		}
-		//	}
-		//	catch (const std::invalid_argument&) {}
-		//	catch (const std::out_of_range&) {}
-		//	d_read.close();
-		//}
+		//? Get bytes read and written
+		if (WMIList.contains(pid)) {
+			detailed.io_read = floating_humanizer(_wtoi64(WMIList.at(pid).ReadTransferCount));
+			detailed.io_write = floating_humanizer(_wtoi64(WMIList.at(pid).WriteTransferCount));
+		}
 	}
 
 	//* Collects and sorts process information from /proc
@@ -1657,7 +1599,10 @@ namespace Proc {
 
 		//* Use pids from last update if only changing filter, sorting or tree options
 		if (no_update and not current_procs.empty()) {
-			if (show_detailed and detailed_pid != detailed.last_pid) _collect_details(detailed_pid, round(system_uptime()), current_procs);
+			if (show_detailed and detailed_pid != detailed.last_pid) {
+				std::lock_guard<std::mutex> lck(WMImutex);
+				_collect_details(detailed_pid, systime, current_procs);
+			}
 		}
 		//* ---------------------------------------------Collection start----------------------------------------------
 		else {
@@ -1717,12 +1662,12 @@ namespace Proc {
 
 				//? Cache values that shouldn't change
 				if (no_cache or (hasWMI and not new_proc.WMI)) {
-					new_proc.name = b2str(pe.szExeFile);
+					new_proc.name = bstr2str(pe.szExeFile);
 					
 					if (hasWMI) {
-						new_proc.cmd = b2str(WMIList.at(pid).CommandLine);
+						new_proc.cmd = bstr2str(WMIList.at(pid).CommandLine);
 						if (new_proc.cmd.empty())
-							new_proc.cmd = b2str(WMIList.at(pid).ExecutablePath);
+							new_proc.cmd = bstr2str(WMIList.at(pid).ExecutablePath);
 					}
 					if (new_proc.cmd.empty()) new_proc.cmd = new_proc.name;
 
@@ -1743,7 +1688,9 @@ namespace Proc {
 									wchar_t lpDomain[260];
 									DWORD dwSize = 260;
 									if (LookupAccountSid(0, ((PTOKEN_USER)ptu.get())->User.Sid, lpName, &dwSize, lpDomain, &dwSize, &SidType)) {
-										new_proc.user = b2str(lpName);
+										new_proc.user = bstr2str(lpName);
+										if (new_proc.user.empty())
+											new_proc.user = bstr2str(lpDomain);
 									}
 								}
 							}
@@ -1769,10 +1716,11 @@ namespace Proc {
 						cpu_t = ULARGE_INTEGER{ kernelT.dwLowDateTime, kernelT.dwHighDateTime }.QuadPart + ULARGE_INTEGER{ userT.dwLowDateTime, userT.dwHighDateTime }.QuadPart;
 					}
 				}
-				else if (hasWMI) {
+				
+				if (hasWMI and (cpu_t == 0 or new_proc.cpu_s == 0)) {
 					//? Process memory and cpu from background WMI thread
 					new_proc.mem = _wtoi64(WMIList.at(pid).PrivateMemory);
-					new_proc.cpu_s = cim2ui64(WMIList.at(pid).CreationDate);
+					new_proc.cpu_s = WMIList.at(pid).CreationDate;
 					cpu_t = _wtoi64(WMIList.at(pid).KernelModeTime) + _wtoi64(WMIList.at(pid).UserModeTime);
 				}
 
@@ -1791,23 +1739,23 @@ namespace Proc {
 				}
 
 
-	//			if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
-	//				got_detailed = true;
-	//			}
+				if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
+					got_detailed = true;
+				}
 			} while (Process32Next(pSnap(), &pe));
 
 			//? Clear dead processes from current_procs
 			auto eraser = rng::remove_if(current_procs, [&](const auto& element){ return not v_contains(found, element.pid); });
 			current_procs.erase(eraser.begin(), eraser.end());
 
-	//		//? Update the details info box for process if active
-	//		if (show_detailed and got_detailed) {
-	//			_collect_details(detailed_pid, round(uptime), current_procs);
-	//		}
-	//		else if (show_detailed and not got_detailed and detailed.status != "Dead") {
-	//			detailed.status = "Dead";
-	//			redraw = true;
-			//}
+			//? Update the details info box for process if active
+			if (show_detailed and got_detailed) {
+				_collect_details(detailed_pid, systime, current_procs);
+			}
+			else if (show_detailed and not got_detailed and detailed.status != "Dead") {
+				detailed.status = "Dead";
+				redraw = true;
+			}
 
 			old_cputimes = cputimes;
 		}

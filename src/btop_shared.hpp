@@ -241,7 +241,6 @@ namespace Proc {
 	//* Container for process info box
 	struct detail_container {
 		size_t last_pid = 0;
-		bool skip_smaps = false;
 		proc_info entry;
 		string elapsed, parent, status, io_read, io_write, memory;
 		long long first_mem = -1;
