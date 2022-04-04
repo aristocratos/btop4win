@@ -246,6 +246,7 @@ namespace Proc {
 		long long first_mem = -1;
 		deque<long long> cpu_percent;
 		deque<long long> mem_bytes;
+		double mem_percent = 0.0;
 	};
 
 	//? Contains all info for proc detailed box

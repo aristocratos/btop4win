@@ -195,6 +195,8 @@ namespace Cpu {
 
 namespace Mem {
 	double old_uptime;
+
+	int64_t get_totalMem();
 }
 
 namespace Cpu {
@@ -995,6 +997,15 @@ namespace Mem {
 
 	mem_info current_mem {};
 
+	int64_t get_totalMem() {
+		MEMORYSTATUSEX memstat;
+		memstat.dwLength = sizeof(MEMORYSTATUSEX);
+		if (not GlobalMemoryStatusEx(&memstat)) {
+			throw std::runtime_error("Failed to run Mem::collect() -> GlobalMemoryStatusEx()");
+		}
+		return static_cast<int64_t>(memstat.ullTotalPhys);
+	}
+
 	auto collect(const bool no_update) -> mem_info& {
 		if (Runner::stopping or (no_update and not current_mem.percent.at("used").empty())) return current_mem;
 		
@@ -1004,7 +1015,7 @@ namespace Mem {
 		auto& mem = current_mem;
 
 		MEMORYSTATUSEX memstat;
-		memstat.dwLength = sizeof(memstat);
+		memstat.dwLength = sizeof(MEMORYSTATUSEX);
 		PERFORMACE_INFORMATION perfinfo;
 		
 		if (not GlobalMemoryStatusEx(&memstat)) {
@@ -1524,7 +1535,7 @@ namespace Proc {
 	}
 
 	//* Get detailed info for selected process
-	void _collect_details(const size_t pid, const uint64_t uptime, vector<proc_info>& procs) {
+	void _collect_details(const size_t pid, const uint64_t uptime, vector<proc_info>& procs, uint64_t totalMem) {
 
 		if (pid != detailed.last_pid) {
 			detailed = {};
@@ -1556,11 +1567,14 @@ namespace Proc {
 			if (p_entry != procs.end()) detailed.parent = p_entry->name;
 		}
 		
+
+
 		detailed.mem_bytes.push_back(detailed.entry.mem);
+		detailed.mem_percent = (double)detailed.entry.mem * 100 / totalMem;
 		detailed.memory = floating_humanizer(detailed.entry.mem);
 		
 		if (detailed.first_mem == -1 or detailed.first_mem < detailed.mem_bytes.back() / 2 or detailed.first_mem > detailed.mem_bytes.back() * 4) {
-			detailed.first_mem = min(detailed.mem_bytes.back() * 2, Mem::totalMem);
+			detailed.first_mem = min(detailed.mem_bytes.back() * 2, (long long)totalMem);
 			redraw = true;
 		}
 
@@ -1601,7 +1615,7 @@ namespace Proc {
 		if (no_update and not current_procs.empty()) {
 			if (show_detailed and detailed_pid != detailed.last_pid) {
 				std::lock_guard<std::mutex> lck(WMImutex);
-				_collect_details(detailed_pid, systime, current_procs);
+				_collect_details(detailed_pid, systime, current_procs, Mem::get_totalMem());
 			}
 		}
 		//* ---------------------------------------------Collection start----------------------------------------------
@@ -1609,7 +1623,7 @@ namespace Proc {
 			std::lock_guard<std::mutex> lck(WMImutex);
 			should_filter = true;
 
-			auto totalMem = Mem::totalMem;
+			auto totalMem = Mem::get_totalMem();
 
 			//? Get cpu total times
 			if (FILETIME idle, kernel, user; GetSystemTimes(&idle, &kernel, &user)) {
@@ -1750,7 +1764,7 @@ namespace Proc {
 
 			//? Update the details info box for process if active
 			if (show_detailed and got_detailed) {
-				_collect_details(detailed_pid, systime, current_procs);
+				_collect_details(detailed_pid, systime, current_procs, totalMem);
 			}
 			else if (show_detailed and not got_detailed and detailed.status != "Dead") {
 				detailed.status = "Dead";
