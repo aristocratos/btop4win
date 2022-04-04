@@ -1412,8 +1412,9 @@ namespace Proc {
 				out += Mv::to(y+2+lc, x+1) + g_color + uresize(prefix_pid, width_left) + ' ';
 				width_left -= ulen(prefix_pid);
 				if (width_left > 0) {
-					out += c_color + uresize(p.name, width_left - 1) + end + ' ';
-					width_left -= (ulen(p.name) + 1);
+					const string nname = to_string(p.tree_index) + p.name;
+					out += c_color + uresize(nname, width_left - 1) + end + ' ';
+					width_left -= (ulen(nname) + 1);
 				}
 				if (width_left > 7 and p.short_cmd != p.name) {
 					out += g_color + '(' + uresize(p.short_cmd, width_left - 3, p_wide_cmd[p.pid]) + ") ";

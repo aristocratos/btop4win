@@ -258,13 +258,14 @@ namespace Cpu {
 namespace Proc {
 
 	struct WMIEntry {
+		uint32_t ParentProcessId = 0;
 		_bstr_t Name;
 		_bstr_t CommandLine;
 		_bstr_t ExecutablePath;
 		_bstr_t KernelModeTime;
 		_bstr_t UserModeTime;
-		uint64_t CreationDate;
-		UINT32 ThreadCount;
+		uint64_t CreationDate = 0;
+		uint32_t ThreadCount = 0;
 		_bstr_t PrivateMemory;
 		_bstr_t ReadTransferCount;
 		_bstr_t WriteTransferCount;
@@ -285,6 +286,7 @@ namespace Proc {
 		_bstr_t PrivateMemory = L"PrivatePageCount";
 		_bstr_t ReadTransferCount = L"ReadTransferCount";
 		_bstr_t WriteTransferCount = L"WriteTransferCount";
+		_bstr_t ParentProcessId = L"ParentProcessId";
 	};
 
 	atomic<uint64_t> WMItimer = 0;
@@ -320,6 +322,11 @@ namespace Proc {
 
 				newWMIList[pid] = {};
 				auto& entry = newWMIList.at(pid);
+				{
+					Shared::VariantWrap ParentProcessId{};
+					if (result->Get(Q.ParentProcessId, 0, &ParentProcessId.val, 0, 0) == S_OK)
+						entry.ParentProcessId = ParentProcessId()->uintVal;
+				}
 				{
 					Shared::VariantWrap Name{};
 					if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
@@ -1497,12 +1504,10 @@ namespace Proc {
 		if (not collapsed and not filtering) {
 			out_procs.push_back(std::ref(cur_proc));
 			cur_proc.tree_index = out_procs.size() - 1;
+			
 			//? Try to find name of the binary file and append to program name if not the same
-			if (cur_proc.short_cmd.empty() and not cur_proc.cmd.empty()) {
-				std::string_view cmd_view = cur_proc.cmd;
-				cmd_view = cmd_view.substr((size_t)0, min(cmd_view.find(' '), cmd_view.size()));
-				cmd_view = cmd_view.substr(min(cmd_view.find_last_of('/') + 1, cmd_view.size()));
-				cur_proc.short_cmd = (string)cmd_view;
+			if (cur_proc.short_cmd.empty() and WMIList.contains(cur_proc.pid)) {
+				cur_proc.short_cmd = bstr2str(WMIList.at(cur_proc.pid).Name);
 			}
 		}
 		else {
@@ -1587,7 +1592,51 @@ namespace Proc {
 		}
 	}
 
-	//* Collects and sorts process information from /proc
+	void proc_sorter(vector<proc_info>& proc_vec, const string& sorting, const bool reverse, const bool tree = false) {
+		if (reverse) {
+			switch (v_index(sort_vector, sorting)) {
+			case 0: rng::stable_sort(proc_vec, rng::less{}, &proc_info::pid); 		break;
+			case 1: rng::stable_sort(proc_vec, rng::less{}, &proc_info::name);		break;
+			case 2: rng::stable_sort(proc_vec, rng::less{}, &proc_info::cmd); 		break;
+			case 3: rng::stable_sort(proc_vec, rng::less{}, &proc_info::threads);	break;
+			case 4: rng::stable_sort(proc_vec, rng::less{}, &proc_info::user);		break;
+			case 5: rng::stable_sort(proc_vec, rng::less{}, &proc_info::mem); 		break;
+			case 6: rng::stable_sort(proc_vec, rng::less{}, &proc_info::cpu_p);		break;
+			case 7: rng::stable_sort(proc_vec, rng::less{}, &proc_info::cpu_c);		break;
+			}
+		}
+		else {
+			switch (v_index(sort_vector, sorting)) {
+			case 0: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::pid); 		break;
+			case 1: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::name);		break;
+			case 2: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::cmd); 		break;
+			case 3: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::threads);	break;
+			case 4: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::user); 		break;
+			case 5: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::mem); 		break;
+			case 6: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::cpu_p);   	break;
+			case 7: rng::stable_sort(proc_vec, rng::greater{}, &proc_info::cpu_c);   	break;
+			}
+		}
+
+		//* When sorting with "cpu lazy" push processes over threshold cpu usage to the front regardless of cumulative usage
+		if (not tree and not reverse and sorting == "cpu lazy") {
+			double max = 10.0, target = 30.0;
+			for (size_t i = 0, x = 0, offset = 0; i < proc_vec.size(); i++) {
+				if (i <= 5 and proc_vec.at(i).cpu_p > max)
+					max = proc_vec.at(i).cpu_p;
+				else if (i == 6)
+					target = (max > 30.0) ? max : 10.0;
+				if (i == offset and proc_vec.at(i).cpu_p > 30.0)
+					offset++;
+				else if (proc_vec.at(i).cpu_p > target) {
+					rotate(proc_vec.begin() + offset, proc_vec.begin() + i, proc_vec.begin() + i + 1);
+					if (++x > 10) break;
+				}
+			}
+		}
+	}
+
+	//* Collects process information
 	auto collect(const bool no_update) -> vector<proc_info>& {
 		const auto& sorting = Config::getS("proc_sorting");
 		const auto& reverse = Config::getB("proc_reversed");
@@ -1610,6 +1659,8 @@ namespace Proc {
 
 		const int cmult = (per_core) ? Shared::coreCount : 1;
 		bool got_detailed = false;
+
+		static vector<size_t> found;
 
 		//* Use pids from last update if only changing filter, sorting or tree options
 		if (no_update and not current_procs.empty()) {
@@ -1636,7 +1687,7 @@ namespace Proc {
 			}
 			
 			//? Iterate over all processes
-			vector<size_t> found;		
+			found.clear();
 			HandleWrapper pSnap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
 
 			if (not pSnap.valid) {
@@ -1677,8 +1728,11 @@ namespace Proc {
 				//? Cache values that shouldn't change
 				if (no_cache or (hasWMI and not new_proc.WMI)) {
 					new_proc.name = bstr2str(pe.szExeFile);
-					
+					new_proc.ppid = pe.th32ParentProcessID;
+
 					if (hasWMI) {
+						if (new_proc.name.empty()) new_proc.name = bstr2str(WMIList.at(pid).Name);
+						if (new_proc.ppid == 0) new_proc.ppid = WMIList.at(pid).ParentProcessId;
 						new_proc.cmd = bstr2str(WMIList.at(pid).CommandLine);
 						if (new_proc.cmd.empty())
 							new_proc.cmd = bstr2str(WMIList.at(pid).ExecutablePath);
@@ -1686,8 +1740,6 @@ namespace Proc {
 					if (new_proc.cmd.empty()) new_proc.cmd = new_proc.name;
 
 					new_proc.name = new_proc.name.substr(0, new_proc.name.find_last_of('.'));
-
-					new_proc.ppid = pe.th32ParentProcessID;
 
 					if (pHandle.valid) {
 						HandleWrapper pToken{};
@@ -1756,6 +1808,7 @@ namespace Proc {
 				if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
 					got_detailed = true;
 				}
+
 			} while (Process32Next(pSnap(), &pe));
 
 			//? Clear dead processes from current_procs
@@ -1774,50 +1827,6 @@ namespace Proc {
 			old_cputimes = cputimes;
 		}
 		//* ---------------------------------------------Collection done-----------------------------------------------
-
-		//* Sort processes
-		if (sorted_change or not no_update) {
-			if (reverse) {
-				switch (v_index(sort_vector, sorting)) {
-					case 0: rng::stable_sort(current_procs, rng::less{}, &proc_info::pid); 			break;
-					case 1: rng::stable_sort(current_procs, rng::less{}, &proc_info::name);			break;
-					case 2: rng::stable_sort(current_procs, rng::less{}, &proc_info::cmd); 			break;
-					case 3: rng::stable_sort(current_procs, rng::less{}, &proc_info::threads);		break;
-					case 4: rng::stable_sort(current_procs, rng::less{}, &proc_info::user);			break;
-					case 5: rng::stable_sort(current_procs, rng::less{}, &proc_info::mem); 			break;
-					case 6: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_p);		break;
-					case 7: rng::stable_sort(current_procs, rng::less{}, &proc_info::cpu_c);		break;
-				}
-			} else {
-				switch (v_index(sort_vector, sorting)) {
-					case 0: rng::stable_sort(current_procs, rng::greater{}, &proc_info::pid); 		break;
-					case 1: rng::stable_sort(current_procs, rng::greater{}, &proc_info::name);		break;
-					case 2: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cmd); 		break;
-					case 3: rng::stable_sort(current_procs, rng::greater{}, &proc_info::threads); 	break;
-					case 4: rng::stable_sort(current_procs, rng::greater{}, &proc_info::user); 		break;
-					case 5: rng::stable_sort(current_procs, rng::greater{}, &proc_info::mem); 		break;
-					case 6: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_p);   	break;
-					case 7: rng::stable_sort(current_procs, rng::greater{}, &proc_info::cpu_c);   	break;
-				}
-			}
-
-			//* When sorting with "cpu lazy" push processes over threshold cpu usage to the front regardless of cumulative usage
-			if (not tree and not reverse and sorting == "cpu lazy") {
-				double max = 10.0, target = 30.0;
-				for (size_t i = 0, x = 0, offset = 0; i < current_procs.size(); i++) {
-					if (i <= 5 and current_procs.at(i).cpu_p > max)
-						max = current_procs.at(i).cpu_p;
-					else if (i == 6)
-						target = (max > 30.0) ? max : 10.0;
-					if (i == offset and current_procs.at(i).cpu_p > 30.0)
-						offset++;
-					else if (current_procs.at(i).cpu_p > target) {
-						rotate(current_procs.begin() + offset, current_procs.begin() + i, current_procs.begin() + i + 1);
-						if (++x > 10) break;
-					}
-				}
-			}
-		}
 
 		//* Match filter if defined
 		if (should_filter) {
@@ -1841,39 +1850,48 @@ namespace Proc {
 			}
 		}
 
+		//? Sort processes
+		if (sorted_change or not no_update) {
+			proc_sorter(current_procs, sorting, reverse, tree);
+		}
+
 		//* Generate tree view if enabled
-		//if (tree and (not no_update or should_filter or sorted_change)) {
-		//	if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
-		//		auto collapser = rng::find(current_procs, find_pid, &proc_info::pid);
-		//		if (collapser != current_procs.end()) {
-		//			if (collapse == expand) {
-		//				collapser->collapsed = not collapser->collapsed;
-		//			}
-		//			else if (collapse > -1) {
-		//				collapser->collapsed = true;
-		//			}
-		//			else if (expand > -1) {
-		//				collapser->collapsed = false;
-		//			}
-		//		}
-		//		collapse = expand = -1;
-		//	}
-		//	if (should_filter or not filter.empty()) filter_found = 0;
+		if (tree and (not no_update or should_filter or sorted_change)) {
+			if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
+				auto collapser = rng::find(current_procs, find_pid, &proc_info::pid);
+				if (collapser != current_procs.end()) {
+					if (collapse == expand) {
+						collapser->collapsed = not collapser->collapsed;
+					}
+					else if (collapse > -1) {
+						collapser->collapsed = true;
+					}
+					else if (expand > -1) {
+						collapser->collapsed = false;
+					}
+				}
+				collapse = expand = -1;
+			}
+			if (should_filter or not filter.empty()) filter_found = 0;
 
-		//	vector<std::reference_wrapper<proc_info>> tree_procs;
-		//	tree_procs.reserve(current_procs.size());
+			vector<std::reference_wrapper<proc_info>> tree_procs;
+			tree_procs.reserve(current_procs.size());
 
-		//	//? Stable sort to retain selected sorting among processes with the same parent
-		//	rng::stable_sort(current_procs, rng::less{}, &proc_info::ppid);
+			for (auto& p : current_procs) {
+				if (not v_contains(found, p.ppid)) p.ppid = 0;
+			}
 
-		//	//? Start recursive iteration over processes with the lowest shared parent pids
-		//	for (auto& p : rng::equal_range(current_procs, current_procs.at(0).ppid, rng::less{}, &proc_info::ppid)) {
-		//		_tree_gen(p, current_procs, tree_procs, 0, false, filter, false, no_update, should_filter);
-		//	}
+			//? Stable sort to retain selected sorting among processes with the same parent
+			rng::stable_sort(current_procs, rng::less{}, & proc_info::ppid);
 
-		//	//? Final sort based on tree index
-		//	rng::stable_sort(current_procs, rng::less{}, &proc_info::tree_index);
-		//}
+			//? Start recursive iteration over processes with the lowest shared parent pids
+			for (auto& p : rng::equal_range(current_procs, current_procs.at(0).ppid, rng::less{}, &proc_info::ppid)) {
+				_tree_gen(p, current_procs, tree_procs, 0, false, filter, false, no_update, should_filter);
+			}
+
+			//? Final stable sort based on tree index
+			rng::stable_sort(current_procs, rng::less{}, &proc_info::tree_index);
+		}
 
 		numpids = (int)current_procs.size() - filter_found;
 
