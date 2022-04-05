@@ -1166,19 +1166,20 @@ namespace Proc {
 				const string hide = (selected > 0 ? t_color + "hide " : Theme::c("title") + "hide " + Theme::c("hi_fg"));
 				int mouse_x = d_x + 2;
 				out += Mv::to(d_y, d_x + 1);
-				if (width > 55) {
-					out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;
-					if (alive and selected == 0) Input::mouse_mappings["t"] = {d_y, mouse_x, 1, 9};
-					mouse_x += 11;
-				}
-				out += title_left + hi_color + Fx::b + (vim_keys ? 'K' : 'k') + t_color + "ill" + Fx::ub + title_right
+				
+				out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;
+				if (alive and selected == 0) Input::mouse_mappings["t"] = {d_y, mouse_x, 1, 9};
+				mouse_x += 11;
+				
+				/*out += title_left + hi_color + Fx::b + (vim_keys ? 'K' : 'k') + t_color + "ill" + Fx::ub + title_right
 					+ title_left + hi_color + Fx::b + 's' + t_color + "ignals" + Fx::ub + title_right
 					+ Mv::to(d_y, d_x + d_width - 10) + title_left + t_color + Fx::b + hide + Symbols::enter + Fx::ub + title_right;
 				if (alive and selected == 0) {
 					Input::mouse_mappings["k"] = {d_y, mouse_x, 1, 4};
 					mouse_x += 6;
 					Input::mouse_mappings["s"] = {d_y, mouse_x, 1, 7};
-				}
+				}*/
+				out += Mv::to(d_y, d_x + d_width - 10) + title_left + t_color + Fx::b + hide + Symbols::enter + Fx::ub + title_right;
 				if (selected == 0) Input::mouse_mappings["enter"] = {d_y, d_x + d_width - 9, 1, 6};
 
 				//? Labels
@@ -1258,18 +1259,18 @@ namespace Proc {
 				+ title_left_down + Fx::b + t_color + "info " + hi_color + Symbols::enter + Fx::ub + title_right_down;
 				if (selected > 0) Input::mouse_mappings["enter"] = {y + height - 1, mouse_x, 1, 6};
 				mouse_x += 8;
-			if (width > 60) {
-				out += title_left_down + Fx::b + hi_color + 't' + t_color + "erminate" + Fx::ub + title_right_down;
-				if (selected > 0) Input::mouse_mappings["t"] = {y + height - 1, mouse_x, 1, 9};
-				mouse_x += 11;
-			}
-			if (width > 55) {
+			
+			out += title_left_down + Fx::b + hi_color + 't' + t_color + "erminate" + Fx::ub + title_right_down;
+			if (selected > 0) Input::mouse_mappings["t"] = {y + height - 1, mouse_x, 1, 9};
+			mouse_x += 11;
+			
+			/*if (width > 55) {
 				out += title_left_down + Fx::b + hi_color + (vim_keys ? 'K' : 'k') + t_color + "ill" + Fx::ub + title_right_down;
 				if (selected > 0) Input::mouse_mappings["k"] = {y + height - 1, mouse_x, 1, 4};
 				mouse_x += 6;
 			}
 			out += title_left_down + Fx::b + hi_color + 's' + t_color + "ignals" + Fx::ub + title_right_down;
-			if (selected > 0) Input::mouse_mappings["s"] = {y + height - 1, mouse_x, 1, 7};
+			if (selected > 0) Input::mouse_mappings["s"] = {y + height - 1, mouse_x, 1, 7};*/
 
 			//? Labels for fields in list
 			if (not proc_tree)
@@ -1315,7 +1316,6 @@ namespace Proc {
 			if (item_fit >= 5) out += cjust(detailed.parent, item_width, true);
 			if (item_fit >= 6) out += cjust(detailed.entry.user, item_width, true);
 			if (item_fit >= 7) out += cjust(to_string(detailed.entry.threads), item_width);
-			//if (item_fit >= 8) out += cjust(to_string(detailed.entry.p_nice), item_width);
 
 
 			const double mem_p = detailed.mem_percent;
@@ -1412,9 +1412,8 @@ namespace Proc {
 				out += Mv::to(y+2+lc, x+1) + g_color + uresize(prefix_pid, width_left) + ' ';
 				width_left -= ulen(prefix_pid);
 				if (width_left > 0) {
-					const string nname = to_string(p.tree_index) + p.name;
-					out += c_color + uresize(nname, width_left - 1) + end + ' ';
-					width_left -= (ulen(nname) + 1);
+					out += c_color + uresize(p.name, width_left - 1) + end + ' ';
+					width_left -= (ulen(p.name) + 1);
 				}
 				if (width_left > 7 and p.short_cmd != p.name) {
 					out += g_color + '(' + uresize(p.short_cmd, width_left - 3, p_wide_cmd[p.pid]) + ") ";
