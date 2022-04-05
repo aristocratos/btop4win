@@ -124,7 +124,6 @@ namespace Shared {
 
 	IWbemLocator* WbemLocator;
 	IWbemServices* WbemServices;
-	ISWbemDateTime* WbemDateTime;
 
 	void WMI_init() {
 		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
@@ -136,8 +135,6 @@ namespace Shared {
 		if (auto hr = WbemLocator->ConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, NULL, 0, NULL, NULL, &WbemServices); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
 		if (auto hr = CoSetProxyBlanket(WbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHN_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
-		if (auto hr = CoCreateInstance(CLSID_SWbemDateTime, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&WbemDateTime)); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
 	}
 
@@ -264,7 +261,7 @@ namespace Proc {
 		_bstr_t ExecutablePath;
 		_bstr_t KernelModeTime;
 		_bstr_t UserModeTime;
-		uint64_t CreationDate = 0;
+		_bstr_t CreationDate;
 		uint32_t ThreadCount = 0;
 		_bstr_t PrivateMemory;
 		_bstr_t ReadTransferCount;
@@ -354,12 +351,8 @@ namespace Proc {
 				}
 				{
 					Shared::VariantWrap CreationDate{};
-					if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK) {
-						Shared::WbemDateTime->put_Value(CreationDate()->bstrVal);
-						_bstr_t bstrFileTime;
-						if (SUCCEEDED(Shared::WbemDateTime->GetFileTime(VARIANT_TRUE, bstrFileTime.GetAddress())))
-							entry.CreationDate = _wtoi64(bstrFileTime);
-					}
+					if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK)
+						entry.CreationDate = CreationDate()->bstrVal;
 				}
 				{
 					Shared::VariantWrap ThreadCount{};
@@ -1527,7 +1520,7 @@ namespace Proc {
 		}
 	}
 
-	void tree_sort_add(vector<tree_proc>& proc_vec, const string& sorting, const bool reverse, int& c_index, const int index_max, const bool collapsed = false) {
+	void tree_sort(vector<tree_proc>& proc_vec, const string& sorting, const bool reverse, int& c_index, const int index_max, const bool collapsed = false) {
 		if (proc_vec.size() > 1) {
 			if (reverse) {
 				switch (v_index(sort_vector, sorting)) {
@@ -1550,7 +1543,7 @@ namespace Proc {
 		for (auto& r : proc_vec) {
 			r.entry.get().tree_index = (collapsed or r.entry.get().filtered ? index_max : c_index++);
 			if (not r.children.empty()) {
-				tree_sort_add(r.children, sorting, reverse, c_index, (collapsed or r.entry.get().collapsed or r.entry.get().tree_index == index_max));
+				tree_sort(r.children, sorting, reverse, c_index, (collapsed or r.entry.get().collapsed or r.entry.get().tree_index == index_max));
 			}
 		}
 	}
@@ -1804,12 +1797,26 @@ namespace Proc {
 							}
 						}
 					}
-					if (new_proc.user.empty()) new_proc.user = "******";
+					if (new_proc.user.empty() and pid < 1000) new_proc.user = "SYSTEM";
 					new_proc.WMI = hasWMI;
 				}
 
+				//? Use parent process username if empty
+				if (not no_cache and new_proc.user.empty()) {
+					if (new_proc.ppid != 0) {
+						if (auto parent = rng::find(current_procs, new_proc.ppid, &proc_info::pid); parent != current_procs.end()) {
+							new_proc.user = parent->user;
+						}
+					}
+					else
+						new_proc.user = "SYSTEM";
+
+					if (new_proc.user.empty()) new_proc.user = "******";
+				}
+
 				new_proc.threads = pe.cntThreads;
-				
+				if (new_proc.threads == 0 and hasWMI)
+					new_proc.threads = WMIList.at(pid).ThreadCount;
 
 				uint64_t cpu_t = 0;
 				if (pHandle.valid) {
@@ -1825,16 +1832,36 @@ namespace Proc {
 					}
 				}
 				
+				//? Only use WMI cpu and mem values if other methods failed
 				if (hasWMI and (cpu_t == 0 or new_proc.cpu_s == 0)) {
 					//? Process memory and cpu from background WMI thread
 					new_proc.mem = _wtoi64(WMIList.at(pid).PrivateMemory);
-					new_proc.cpu_s = WMIList.at(pid).CreationDate;
+					
+					//? Convert process creation CIM_DATETIME to FILETIME, (less accurate than GetProcessTimes() due to loss of microsecond count)
+					if (new_proc.cpu_s == 0) {
+						const string strdate = bstr2str(WMIList.at(pid).CreationDate);
+						if (strdate.size() > 18) {
+							SYSTEMTIME t = { 0 };
+							t.wYear = stoi(strdate.substr(0, 4));
+							t.wMonth = stoi(strdate.substr(4, 2));
+							t.wDay = stoi(strdate.substr(6, 2));
+							t.wHour = stoi(strdate.substr(8, 2));
+							t.wMinute = stoi(strdate.substr(10, 2));
+							t.wSecond = stoi(strdate.substr(12, 2));
+							t.wMilliseconds = stoi(strdate.substr(15, 3));
+							ULARGE_INTEGER ft;
+							if (SystemTimeToFileTime(&t, (LPFILETIME)&ft))
+								new_proc.cpu_s = ft.QuadPart;
+						}
+					}
+					
+					//? Process cpu times
 					cpu_t = _wtoi64(WMIList.at(pid).KernelModeTime) + _wtoi64(WMIList.at(pid).UserModeTime);
 				}
 
 
 				if (cpu_t != 0) {
-					if (new_proc.cpu_s == 0) new_proc.cpu_t = cpu_t;
+					if (new_proc.cpu_t == 0) new_proc.cpu_t = cpu_t;
 					
 					//? Process cpu usage since last update
 					new_proc.cpu_p = clamp(round(cmult * 100 * (cpu_t - new_proc.cpu_t) / max((uint64_t)1, cputimes - old_cputimes)) / 10.0, 0.0, 100.0 * Shared::coreCount);
@@ -1931,12 +1958,9 @@ namespace Proc {
 				_tree_gen(p, current_procs, tree_procs, 0, false, filter, false, no_update, should_filter);
 			}
 
-			//? First stable sort based on tree index
-			//rng::stable_sort(current_procs, rng::less{}, &proc_info::tree_index);
-
 			//? Recursive sort over tree structure to account for collapsed processes in the tree
 			int index = 0;
-			tree_sort_add(tree_procs, sorting, reverse, index, current_procs.size());
+			tree_sort(tree_procs, sorting, reverse, index, current_procs.size());
 
 			//? Add tree begin symbol to first item if childless
 			if (tree_procs.front().children.empty())
@@ -1946,7 +1970,7 @@ namespace Proc {
 			if (tree_procs.back().children.empty())
 				tree_procs.back().entry.get().prefix.replace(tree_procs.back().entry.get().prefix.size() - 8, 8, " └─ ");
 
-			//? Final stable sort based on tree index
+			//? Final sort based on tree index
 			rng::sort(current_procs, rng::less{}, & proc_info::tree_index);
 		}
 
