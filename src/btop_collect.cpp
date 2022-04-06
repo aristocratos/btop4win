@@ -1570,6 +1570,8 @@ namespace Proc {
 		}
 		else if (cur_proc.filtered) cur_proc.filtered = false;
 
+		cur_proc.depth = cur_depth;
+
 		//? Set tree index position for process if not filtered out or currently in a collapsed sub-tree
 		out_procs.push_back({ cur_proc });
 		if (not collapsed and not filtering) {
@@ -1577,7 +1579,21 @@ namespace Proc {
 			
 			//? Try to find name of the binary file and append to program name if not the same
 			if (cur_proc.short_cmd.empty() and WMIList.contains(cur_proc.pid)) {
-				cur_proc.short_cmd = bstr2str(WMIList.at(cur_proc.pid).Name);
+				string pname = bstr2str(WMIList.at(cur_proc.pid).Name);
+				if (pname.size() < cur_proc.cmd.size()) {
+					std::string_view cmd = cur_proc.cmd;
+					auto ssfind = cmd.find(pname);
+					if (ssfind + pname.size() < cmd.size()) {
+						cmd.remove_prefix(ssfind + pname.size());
+						if (cmd.starts_with(pname)) cmd.remove_prefix(pname.size());
+						if (cmd.starts_with("\"")) cmd.remove_prefix(1);
+						if (cmd.starts_with(" ")) cmd.remove_prefix(1);
+						cur_proc.short_cmd = string(cmd);
+					}
+				}
+
+				if (cur_proc.short_cmd.empty())
+					cur_proc.short_cmd = pname;
 			}
 		}
 		else {
@@ -1926,6 +1942,7 @@ namespace Proc {
 
 		//* Generate tree view if enabled
 		if (tree and (not no_update or should_filter or sorted_change)) {
+			bool locate_selection = false;
 			if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
 				auto collapser = rng::find(current_procs, find_pid, &proc_info::pid);
 				if (collapser != current_procs.end()) {
@@ -1938,6 +1955,7 @@ namespace Proc {
 					else if (expand > -1) {
 						collapser->collapsed = false;
 					}
+					if (Config::ints.at("proc_selected") > 0) locate_selection = true;
 				}
 				collapse = expand = -1;
 			}
@@ -1972,6 +1990,14 @@ namespace Proc {
 
 			//? Final sort based on tree index
 			rng::sort(current_procs, rng::less{}, & proc_info::tree_index);
+
+			//? Move current selection/view to the selected process when collapsing/expanding in the tree
+			if (locate_selection) {
+				int loc = rng::find(current_procs, Proc::selected_pid, &proc_info::pid)->tree_index;
+				if (Config::ints.at("proc_start") >= loc or Config::ints.at("proc_start") <= loc - Proc::select_max)
+					Config::ints.at("proc_start") = max(0, loc - 1);
+				Config::ints.at("proc_selected") = loc - Config::ints.at("proc_start") + 1;
+			}
 		}
 
 		numpids = (int)current_procs.size() - filter_found;

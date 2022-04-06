@@ -191,7 +191,7 @@ namespace Proc {
 	extern bool shown, redraw;
 	extern int select_max;
 	extern atomic<int> detailed_pid;
-	extern int selected_pid, start, selected, collapse, expand;
+	extern int selected_pid, start, selected, collapse, expand, selected_depth;
 	extern string selected_name;
 	extern atomic<uint64_t> WMItimer;
 

@@ -1023,7 +1023,7 @@ namespace Proc {
 	int x, y, width = 20, height;
 	int start, selected, select_max;
 	bool shown = true, redraw = true;
-	int selected_pid = 0;
+	int selected_pid = 0, selected_depth = 0;
 	string selected_name;
 	unordered_flat_map<size_t, Draw::Graph> p_graphs;
 	unordered_flat_map<size_t, bool> p_wide_cmd;
@@ -1342,9 +1342,11 @@ namespace Proc {
 		for (int n=0; auto& p : plist) {
 			if (p.filtered or (proc_tree and p.tree_index == plist.size()) or n++ < start) continue;
 			bool is_selected = (lc + 1 == selected);
+			
 			if (is_selected) {
 				selected_pid = (int)p.pid;
 				selected_name = p.name;
+				selected_depth = p.depth;
 			}
 
 			//? Update graphs for processes with above 0.0% cpu usage, delete if below 0.1% 10x times
