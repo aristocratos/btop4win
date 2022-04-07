@@ -53,8 +53,6 @@ namespace Global {
 	string overlay;
 	string clock;
 
-	//uid_t real_uid, set_uid;
-
 	fs::path self_path;
 
 	string exit_error_msg;
@@ -90,7 +88,6 @@ void argumentParser(const int& argc, char **argv) {
 					<< "  -t, --tty_on          force (ON) tty mode, max 16 colors and tty friendly graph symbols\n"
 					<< "  +t, --tty_off         force (OFF) tty mode\n"
 					<< "  -p, --preset <id>     start with preset, integer value between 0-9\n"
-					<< "  --utf-force           force start even if no UTF-8 locale was detected\n"
 					<< "  --debug               start in DEBUG mode: shows microsecond timer for information collect\n"
 					<< "                        and screen draw functions and sets loglevel to DEBUG\n"
 					<< endl;
@@ -124,8 +121,6 @@ void argumentParser(const int& argc, char **argv) {
 				exit(1);
 			}
 		}
-		else if (argument == "--utf-force")
-			Global::utf_force = true;
 		else if (argument == "--debug")
 			Global::debug = true;
 		else {

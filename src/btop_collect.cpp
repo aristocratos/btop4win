@@ -70,9 +70,9 @@ namespace Tools {
 		~HandleWrapper() { if (wHandle != nullptr) CloseHandle(wHandle); }
 	};
 
-	//? Set security mode for better chance of collecting process information
-	//? Based on code from psutil
-	//? See: https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/security.c
+	//! Set security mode for better chance of collecting process information
+	//! Based on code from psutil
+	//! See: https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/security.c
 	void setWinDebug() {
 		HandleWrapper hToken{};
 		HANDLE thisProc = GetCurrentProcess();
@@ -198,8 +198,8 @@ namespace Mem {
 
 namespace Cpu {
 
-	// Code for load average comes from psutils calculation
-	// see https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/wmi.c
+	//! Code for load average based on psutils calculation
+	//! see https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/wmi.c
 
 	const double LAVG_1F = 0.9200444146293232478931553241;
 	const double LAVG_5F = 0.9834714538216174894737477501;
@@ -304,7 +304,6 @@ namespace Proc {
 			robin_hood::unordered_flat_map<size_t, WMIEntry> newWMIList;
 			IWbemClassObject* result = NULL;
 			ULONG retCount = 0;
-			int iii = 0;
 
 			while (WMI.WbEnum->Next(WBEM_INFINITE, 1, &result, &retCount) == S_OK) {
 				Shared::WMIObjectReleaser rls(result);
@@ -403,6 +402,15 @@ namespace Shared {
 		procPath = "";
 		passwd_path = "";
 
+		//? Set SE DEBUG mode
+		try {
+			setWinDebug();
+		}
+		catch (const std::exception& e) {
+			Logger::warning("Failed to set SE DEBUG mode for process!");
+			Logger::debug(e.what());
+		}
+
 		SYSTEM_INFO sysinfo;
 		GetSystemInfo(&sysinfo);
 
@@ -439,22 +447,17 @@ namespace Shared {
 		}
 		Cpu::core_mapping = Cpu::get_core_mapping();
 
+		//? Start up loadAVG counter in background
 		std::thread(Cpu::loadAVG_init).detach();
 
 		//? Init for namespace Mem
 		Mem::old_uptime = system_uptime();
 		Mem::collect();
 
-		try {
-			setWinDebug();
-		}
-		catch (const std::exception& e) {
-			Logger::warning("Failed to set SE DEBUG mode for process!");
-			Logger::debug(e.what());
-		}
-
+		//? Set up connection to WMI
 		Shared::WMI_init();
 
+		//? Start up WMI process info collector in background
 		std::thread(Proc::WMIProcs).detach();
 
 	}
