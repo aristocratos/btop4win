@@ -279,7 +279,7 @@ namespace Input {
 					Proc::filter = { Config::getS("proc_filter") };
 					old_filter = Proc::filter.text;
 				}
-				else if (key == "e") {
+				else if (key == "e" and not Config::getB("proc_services")) {
 					Config::flip("proc_tree");
 					no_update = false;
 				}
@@ -342,8 +342,9 @@ namespace Input {
 					if (Config::getI("proc_selected") == 0 and not Config::getB("show_detailed")) {
 						return;
 					}
-					else if (Config::getI("proc_selected") > 0 and Config::getI("detailed_pid") != Config::getI("selected_pid")) {
+					else if (Config::getI("proc_selected") > 0 and (Config::getI("detailed_pid") != Config::getI("selected_pid") or Config::getS("detailed_name") != Config::getS("selected_name"))) {
 						Config::set("detailed_pid", Config::getI("selected_pid"));
+						Config::set("detailed_name", Config::getS("selected_name"));
 						Config::set("proc_last_selected", Config::getI("proc_selected"));
 						Config::set("proc_selected", 0);
 						Config::set("show_detailed", true);
@@ -352,6 +353,7 @@ namespace Input {
 						if (Config::getI("proc_last_selected") > 0) Config::set("proc_selected", Config::getI("proc_last_selected"));
 						Config::set("proc_last_selected", 0);
 						Config::set("detailed_pid", 0);
+						Config::set("detailed_name", "");
 						Config::set("show_detailed", false);
 					}
 				}
@@ -370,9 +372,10 @@ namespace Input {
 				//}
 				else if (key == "s") {
 					atomic_wait(Runner::active);
+					if (Config::getB("proc_tree")) Config::set("proc_tree", false);
 					Config::flip("proc_services");
 					Config::set("proc_selected", 0);
-					Config::set("show_detailed", false);
+					//Config::set("show_detailed", false);
 					no_update = false;
 				}
 				else if (is_in(key, "up", "down", "page_up", "page_down", "home", "end") or (vim_keys and is_in(key, "j", "k", "g", "G"))) {

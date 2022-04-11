@@ -207,6 +207,7 @@ namespace Config {
 		{"proc_filter", ""},
 		{"proc_command", ""},
 		{"selected_name", ""},
+		{"detailed_name", ""}
 	};
 	unordered_flat_map<string, string> stringsTmp;
 

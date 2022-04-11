@@ -279,7 +279,6 @@ namespace Proc {
 		_bstr_t StartMode;
 		_bstr_t Owner;
 		_bstr_t State;
-
 	};
 
 	struct WMIProcQuerys{
@@ -306,10 +305,9 @@ namespace Proc {
 		_bstr_t ProcessID = L"ProcessID";
 		_bstr_t AcceptPause = L"AcceptPause";
 		_bstr_t AcceptStop = L"AcceptStop";
-		_bstr_t Name = L"DisplayName";
+		_bstr_t Name = L"Name";
 		_bstr_t Caption = L"Caption";
 		_bstr_t Description = L"Description";
-		_bstr_t ServiceType = L"ServiceType";
 		_bstr_t StartMode = L"StartMode";
 		_bstr_t Owner = L"StartName";
 		_bstr_t State = L"State";
@@ -318,7 +316,7 @@ namespace Proc {
 
 	atomic<uint64_t> WMItimer = 0;
 	robin_hood::unordered_flat_map<size_t, WMIEntry> WMIList;
-	robin_hood::unordered_flat_map<size_t, WMISvcEntry> WMISvcList;
+	robin_hood::unordered_flat_map<string, WMISvcEntry> WMISvcList;
 	std::mutex WMImutex;
 
 	//? WMI thread, collects process/service information once every second to augment missing information from the standard WIN32 API methods
@@ -417,7 +415,7 @@ namespace Proc {
 			//* Services
 			if (Config::getB("proc_services") or WMISvcList.empty()) {
 				Shared::WbemEnumerator WMI;
-				robin_hood::unordered_flat_map<size_t, WMISvcEntry> newWMISvcList;
+				robin_hood::unordered_flat_map<string, WMISvcEntry> newWMISvcList;
 				auto& Q = QSvc;
 
 				if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
@@ -430,15 +428,25 @@ namespace Proc {
 				while (WMI.WbEnum->Next(WBEM_INFINITE, 1, &result, &retCount) == S_OK) {
 					Shared::WMIObjectReleaser rls(result);
 					if (retCount == 0) break;
-					size_t pid = 0;
+					string name;
+					{
+						Shared::VariantWrap Name{};
+						if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
+							name = bstr2str(Name()->bstrVal);
+					}
+					if (name.empty()) continue;
+					newWMISvcList[name] = {};
+					auto& entry = newWMISvcList.at(name);
 					{
 						Shared::VariantWrap ProcessId{};
-						if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
-						pid = ProcessId()->uintVal;
+						if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) == S_OK)
+							entry.ProcessID = ProcessId()->uintVal;
 					}
-
-					newWMISvcList[pid] = {};
-					auto& entry = newWMISvcList.at(pid);
+					{
+						Shared::VariantWrap Caption{};
+						if (result->Get(Q.Caption, 0, &Caption.val, 0, 0) == S_OK)
+							entry.Caption = Caption()->bstrVal;
+					}
 					{
 						Shared::VariantWrap AcceptPause{};
 						if (result->Get(Q.AcceptPause, 0, &AcceptPause.val, 0, 0) == S_OK)
@@ -450,24 +458,9 @@ namespace Proc {
 							entry.AcceptStop = (AcceptStop()->boolVal == VARIANT_TRUE);
 					}
 					{
-						Shared::VariantWrap Name{};
-						if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
-							entry.Name = Name()->bstrVal;
-					}
-					{
-						Shared::VariantWrap Caption{};
-						if (result->Get(Q.Caption, 0, &Caption.val, 0, 0) == S_OK)
-							entry.Caption = Caption()->bstrVal;
-					}
-					{
 						Shared::VariantWrap Description{};
 						if (result->Get(Q.Description, 0, &Description.val, 0, 0) == S_OK)
 							entry.Description = Description()->bstrVal;
-					}
-					{
-						Shared::VariantWrap ServiceType{};
-						if (result->Get(Q.ServiceType, 0, &ServiceType.val, 0, 0) == S_OK)
-							entry.ServiceType = ServiceType()->bstrVal;
 					}
 					{
 						Shared::VariantWrap StartMode{};
@@ -1749,56 +1742,71 @@ namespace Proc {
 	}
 
 	//* Get detailed info for selected process
-	void _collect_details(const size_t pid, const uint64_t uptime, vector<proc_info>& procs, uint64_t totalMem) {
-
-		if (pid != detailed.last_pid) {
+	void _collect_details(const size_t pid, const string name, const uint64_t uptime, vector<proc_info>& procs, uint64_t totalMem) {
+		const auto& services = Config::getB("proc_services");
+		if (pid != detailed.last_pid or name != detailed.last_name) {
 			detailed = {};
 			detailed.last_pid = pid;
+			detailed.last_name = name;
 			detailed.status = "Running";
 		}
 
-		//? Copy proc_info for process from proc vector
-		auto p_info = rng::find(procs, pid, &proc_info::pid);
-		detailed.entry = *p_info;
+		if (services and WMISvcList.contains(name)) {
+			const auto& svc = WMISvcList.at(name);
+			detailed.status = bstr2str(svc.State);
+			detailed.owner = bstr2str(svc.Owner);
+			detailed.start = bstr2str(svc.StartMode);
+			detailed.description = bstr2str(svc.Description);
+		}
 
-		//? Update cpu percent deque for process cpu graph
-		if (not Config::getB("proc_per_core")) detailed.entry.cpu_p *= Shared::coreCount;
-		detailed.cpu_percent.push_back(clamp((long long)round(detailed.entry.cpu_p), 0ll, 100ll));
-		while (cmp_greater(detailed.cpu_percent.size(), width)) detailed.cpu_percent.pop_front();
+		if (detailed.status == "Running") {
 
-		//? Process runtime
-		if (detailed.entry.cpu_s > 0) {
-			detailed.elapsed = sec_to_dhms((uptime - detailed.entry.cpu_s) / 10'000'000);
-			if (detailed.elapsed.size() > 8) detailed.elapsed.resize(detailed.elapsed.size() - 3);
+			//? Copy proc_info for process from proc vector
+			auto p_info = (services ? rng::find(procs, name, &proc_info::name) : rng::find(procs, pid, &proc_info::pid));
+			detailed.entry = *p_info;
+
+			//? Update cpu percent deque for process cpu graph
+			if (not Config::getB("proc_per_core")) detailed.entry.cpu_p *= Shared::coreCount;
+			detailed.cpu_percent.push_back(clamp((long long)round(detailed.entry.cpu_p), 0ll, 100ll));
+			while (cmp_greater(detailed.cpu_percent.size(), width)) detailed.cpu_percent.pop_front();
+
+			//? Process runtime
+			if (detailed.entry.cpu_s > 0) {
+				detailed.elapsed = sec_to_dhms((uptime - detailed.entry.cpu_s) / 10'000'000);
+				if (detailed.elapsed.size() > 8) detailed.elapsed.resize(detailed.elapsed.size() - 3);
+			}
+			else {
+				detailed.elapsed = "unknown";
+			}
+
+			detailed.mem_bytes.push_back(detailed.entry.mem);
+			detailed.mem_percent = (double)detailed.entry.mem * 100 / totalMem;
+			detailed.memory = floating_humanizer(detailed.entry.mem);
+
+			if (detailed.first_mem == -1 or detailed.first_mem < detailed.mem_bytes.back() / 2 or detailed.first_mem > detailed.mem_bytes.back() * 4) {
+				detailed.first_mem = min(detailed.mem_bytes.back() * 2, (long long)totalMem);
+				redraw = true;
+			}
+
+			while (cmp_greater(detailed.mem_bytes.size(), width)) detailed.mem_bytes.pop_front();
+
+			//? Get bytes read and written
+			if (WMIList.contains(pid)) {
+				detailed.io_read = floating_humanizer(_wtoi64(WMIList.at(pid).ReadTransferCount));
+				detailed.io_write = floating_humanizer(_wtoi64(WMIList.at(pid).WriteTransferCount));
+			}
+
+			//? Get parent process name
+			if (not services and detailed.parent.empty()) {
+				auto p_entry = rng::find(procs, detailed.entry.ppid, &proc_info::pid);
+				if (p_entry != procs.end()) detailed.parent = p_entry->name;
+			}
 		}
 		else {
-			detailed.elapsed = "unknown";
+			detailed.entry = {};
+			detailed.entry.name = name;
 		}
 
-		//? Get parent process name
-		if (detailed.parent.empty()) {
-			auto p_entry = rng::find(procs, detailed.entry.ppid, &proc_info::pid);
-			if (p_entry != procs.end()) detailed.parent = p_entry->name;
-		}
-		
-
-
-		detailed.mem_bytes.push_back(detailed.entry.mem);
-		detailed.mem_percent = (double)detailed.entry.mem * 100 / totalMem;
-		detailed.memory = floating_humanizer(detailed.entry.mem);
-		
-		if (detailed.first_mem == -1 or detailed.first_mem < detailed.mem_bytes.back() / 2 or detailed.first_mem > detailed.mem_bytes.back() * 4) {
-			detailed.first_mem = min(detailed.mem_bytes.back() * 2, (long long)totalMem);
-			redraw = true;
-		}
-
-		while (cmp_greater(detailed.mem_bytes.size(), width)) detailed.mem_bytes.pop_front();
-
-		//? Get bytes read and written
-		if (WMIList.contains(pid)) {
-			detailed.io_read = floating_humanizer(_wtoi64(WMIList.at(pid).ReadTransferCount));
-			detailed.io_write = floating_humanizer(_wtoi64(WMIList.at(pid).WriteTransferCount));
-		}
 	}
 
 
@@ -1812,7 +1820,8 @@ namespace Proc {
 		const auto& tree = Config::getB("proc_tree");
 		const auto& show_detailed = Config::getB("show_detailed");
 		const auto& services = Config::getB("proc_services");
-		const size_t detailed_pid = Config::getI("detailed_pid");
+		const auto& detailed_pid = Config::getI("detailed_pid");
+		const auto& detailed_name = Config::getS("detailed_name");
 		bool should_filter = current_filter != filter;
 		if (should_filter) current_filter = filter;
 		const bool sorted_change = (sorting != current_sort or reverse != current_rev or should_filter);
@@ -1820,6 +1829,7 @@ namespace Proc {
 			current_sort = sorting;
 			current_rev = reverse;
 		}
+		int64_t totalMem = 0;
 
 		FILETIME st;
 		::GetSystemTimeAsFileTime(&st);
@@ -1833,14 +1843,14 @@ namespace Proc {
 
 		//* Use pids from last update if only changing filter, sorting or tree options
 		if (no_update and not current_procs.empty()) {
-			if (show_detailed and detailed_pid != detailed.last_pid) {
-				_collect_details(detailed_pid, systime, current_procs, Mem::get_totalMem());
+			if (show_detailed and (detailed_pid != detailed.last_pid or detailed_name != detailed.last_name)) {
+				_collect_details(detailed_pid, detailed_name, systime, (services ? current_svcs : current_procs), Mem::get_totalMem());
 			}
 		}
 		//* ---------------------------------------------Collection start----------------------------------------------
 		else {
 			should_filter = true;
-			auto totalMem = Mem::get_totalMem();
+			totalMem = Mem::get_totalMem();
 
 			//? Get cpu total times
 			if (FILETIME idle, kernel, user; GetSystemTimes(&idle, &kernel, &user)) {
@@ -2016,11 +2026,11 @@ namespace Proc {
 			current_procs.erase(eraser.begin(), eraser.end());
 
 			//? Update the details info box for process if active
-			if (show_detailed and got_detailed) {
-				_collect_details(detailed_pid, systime, current_procs, totalMem);
+			if (not services and show_detailed and got_detailed) {
+				_collect_details(detailed_pid, detailed_name, systime, current_procs, totalMem);
 			}
-			else if (show_detailed and not got_detailed and detailed.status != "Dead") {
-				detailed.status = "Dead";
+			else if (show_detailed and not got_detailed and detailed.status != "Stopped") {
+				detailed.status = "Stopped";
 				redraw = true;
 			}
 
@@ -2029,35 +2039,51 @@ namespace Proc {
 		
 		//* Collect info for services if currently displayed
 		if (services and not no_update) {
-
-			for (const auto& [pid, svc] : WMISvcList) {
+			if (tree) Config::bools.at("proc_tree") = false;
+			bool got_detailed = false;
+			for (const auto& [name, svc] : WMISvcList) {
 				
 				//? Check if pid already exists in current_svcs
-				auto find_old = rng::find(current_svcs, pid, &proc_info::pid);
+				auto find_old = rng::find(current_svcs, name, &proc_info::name);
 				if (find_old == current_svcs.end()) {
-					current_svcs.push_back({ pid });
+					current_svcs.push_back({});
 					find_old = current_svcs.end() - 1;
 				}
 
 				auto& new_svc = *find_old;
 
-				new_svc.name = svc.Name;
-				new_svc.cmd = svc.Caption;
-				new_svc.user = svc.State;
+				if (name == detailed_name) {
+					got_detailed = true;
+				}
+
+				new_svc.name = name;
+				new_svc.pid = svc.ProcessID;
+				new_svc.cmd = bstr2str(svc.Caption);
+				new_svc.user = bstr2str(svc.State);
 				if (tree) new_svc.short_cmd = new_svc.cmd;
 
 				//? Find pid entry in current_procs
-				if (auto proc = rng::find(current_procs, pid, &proc_info::pid); proc != current_procs.end()) {
+				if (auto proc = rng::find(current_procs, new_svc.pid, &proc_info::pid); proc != current_procs.end()) {
 					new_svc.cpu_c = proc->cpu_c;
 					new_svc.cpu_p = proc->cpu_p;
+					new_svc.cpu_s = proc->cpu_s;
 					new_svc.mem = proc->mem;
 					new_svc.threads = proc->threads;
 				}
 
 			}
 
+			// ? Update the details info box for service if active
+			if (show_detailed and got_detailed) {
+				_collect_details(detailed_pid, detailed_name, systime, current_svcs, totalMem);
+			}
+			else if (show_detailed and not got_detailed and detailed.status != "Stopped") {
+				detailed.status = "Stopped";
+				redraw = true;
+			}
+
 			//? Clear missing services from current_svcs
-			auto eraser = rng::remove_if(current_svcs, [&](const auto& element) { return not WMISvcList.contains(element.pid); });
+			auto eraser = rng::remove_if(current_svcs, [&](const auto& element) { return not WMISvcList.contains(element.name); });
 			current_svcs.erase(eraser.begin(), eraser.end());
 		}
 
@@ -2093,7 +2119,7 @@ namespace Proc {
 		}
 
 		//* Generate tree view if enabled
-		if (tree and (not no_update or should_filter or sorted_change)) {
+		if (tree and not services and (not no_update or should_filter or sorted_change)) {
 			bool locate_selection = false;
 			if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
 				auto collapser = rng::find(out_vec, find_pid, &proc_info::pid);

@@ -1108,6 +1108,7 @@ namespace Proc {
 		auto& graph_bg = Symbols::graph_symbols.at((graph_symbol == "default" ? Config::getS("graph_symbol") + "_up" : graph_symbol + "_up")).at(6);
 		auto& mem_bytes = Config::getB("proc_mem_bytes");
 		auto& vim_keys = Config::getB("vim_keys");
+		auto& services = Config::getB("proc_services");
 		const auto& sorting = Config::getS("proc_sorting");
 		start = Config::getI("proc_start");
 		selected = Config::getI("proc_selected");
@@ -1131,14 +1132,14 @@ namespace Proc {
 
 			//? Adapt sizes of text fields
 			user_size = (width < 75 ? 5 : 10);
-			thread_size = (width < 75 ? - 1 : 4);
+			thread_size = (services or width < 75 ? - 1 : 4);
 			prog_size = (width > 70 ? 16 : ( width > 55 ? 8 : width - user_size - thread_size - 33));
 			cmd_size = (width > 55 ? width - prog_size - user_size - thread_size - 33 : -1);
 			tree_size = width - user_size - thread_size - 23;
 
 			//? Detailed box
 			if (show_detailed) {
-				const bool alive = detailed.status != "Dead";
+				const bool alive = detailed.status != "Stopped";
 				dgraph_x = x;
 				dgraph_width = max(width / 3, width - 121);
 				d_width = width - dgraph_width - 1;
@@ -1149,6 +1150,10 @@ namespace Proc {
 				if (alive) {
 					detailed_cpu_graph = Draw::Graph{dgraph_width - 1, 7, "cpu", detailed.cpu_percent, graph_symbol, false, true};
 					detailed_mem_graph = Draw::Graph{d_width / 3, 1, "", detailed.mem_bytes, graph_symbol, false, false, detailed.first_mem};
+				}
+				else if (detailed.cpu_percent.size() < 2) {
+					detailed_cpu_graph = Draw::Graph{ dgraph_width - 1, 7, "cpu", {0}, graph_symbol, false, false};
+					detailed_mem_graph = Draw::Graph{ d_width / 3, 1, "", {0}, graph_symbol, false, false, detailed.first_mem};
 				}
 
 				//? Draw structure of details box
@@ -1167,6 +1172,7 @@ namespace Proc {
 				const string hide = (selected > 0 ? t_color + "hide " : Theme::c("title") + "hide " + Theme::c("hi_fg"));
 				int mouse_x = d_x + 2;
 				out += Mv::to(d_y, d_x + 1);
+				
 				
 				out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;
 				if (alive and selected == 0) Input::mouse_mappings["t"] = {d_y, mouse_x, 1, 9};
@@ -1191,21 +1197,22 @@ namespace Proc {
 										+ cjust("Elapsed:", item_width);
 				if (item_fit >= 3) out += cjust("IO/R:", item_width);
 				if (item_fit >= 4) out += cjust("IO/W:", item_width);
-				if (item_fit >= 5) out += cjust("Parent:", item_width);
-				if (item_fit >= 6) out += cjust("User:", item_width);
+				if (item_fit >= 5) out += cjust((services ? "Start:" : "Parent :"), item_width);
+				if (item_fit >= 6) out += cjust((services ? "Owner:" : "User:"), item_width);
 				if (item_fit >= 7) out += cjust("Threads:", item_width);
 				//if (item_fit >= 8) out += cjust("Nice:", item_width);
 
 
 				//? Command line
-				for (int i = 0; const auto& l : {'C', 'M', 'D'})
+				for (int i = 0; const auto& l : (services ? array<const char, 3>{'D', 'S', 'C'} : array<const char, 3>{'C', 'M', 'D'}))
 				out += Mv::to(d_y + 5 + i++, d_x + 1) + l;
 
 				out += Theme::c("main_fg") + Fx::ub;
-				const int cmd_size = ulen(detailed.entry.cmd, true);
-				for (int num_lines = min(3, (int)ceil((double)cmd_size / (d_width - 5))), i = 0; i < num_lines; i++) {
+				const string& text = (services ? detailed.description : detailed.entry.cmd);
+				const int txt_size = ulen(text, true);
+				for (int num_lines = min(3, (int)ceil((double)txt_size / (d_width - 5))), i = 0; i < num_lines; i++) {
 					out += Mv::to(d_y + 5 + (num_lines == 1 ? 1 : i), d_x + 3)
-						+ cjust(luresize(detailed.entry.cmd, cmd_size - (d_width - 5) * i, true), d_width - 5, true, true);
+						+ cjust(luresize(text, txt_size - (d_width - 5) * i, true), d_width - 5, true, true);
 				}
 
 			}
@@ -1241,8 +1248,8 @@ namespace Proc {
 				Input::mouse_mappings["r"] = {y, sort_pos - 24, 1, 7};
 			}
 			if (width > 45 + sort_len) {
-				out += Mv::to(y, sort_pos - 16) + title_left + (Config::getB("proc_tree") ? Fx::bul : "") + Theme::c("title") + "tre"
-					+ Theme::c("hi_fg") + 'e' + Fx::ubul + title_right;
+				out += Mv::to(y, sort_pos - 16) + title_left + (Config::getB("proc_tree") ? Fx::bul : "") + (services ? Theme::c("inactive_fg") : Theme::c("title")) + "tre"
+					+ (services ? "" : Theme::c("hi_fg")) + 'e' + Fx::ubul + title_right;
 				Input::mouse_mappings["e"] = {y, sort_pos - 15, 1, 4};
 			}
 			if (width > 35 + sort_len) {
@@ -1281,14 +1288,14 @@ namespace Proc {
 			if (not proc_tree)
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
 					+ (sorting == "pid" ? Fx::ul : "") + rjust("Pid:", 8) + Fx::uul + ' '
-					+ (sorting == "name" ? Fx::ul : "") + ljust("Program:", prog_size) + Fx::uul + ' '
-					+ (cmd_size > 0 ? (sorting == "command" ? Fx::ul : "") + ljust("Command:", cmd_size) + Fx::uul : "") + ' ';
+					+ (sorting == "name" ? Fx::ul : "") + ljust((services ? "Service:" : "Program:"), prog_size) + Fx::uul + ' '
+					+ (cmd_size > 0 ? (sorting == "command" ? Fx::ul : "") + ljust((services ? "Caption:" : "Command:"), cmd_size) + Fx::uul : "") + ' ';
 			else
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
 					+ (is_in(sorting, "pid", "name", "command") ? Fx::ul : "") + ljust("Tree:", tree_size) + Fx::uul + ' ';
 
 			out += (thread_size > 0 ? Mv::l(4) + (sorting == "threads" ? Fx::ul : "") + "Threads: " + Fx::uul : "")
-					+ (sorting == "user" ? Fx::ul : "") + ljust("User:", user_size) + Fx::uul + ' '
+					+ (sorting == "user" ? Fx::ul : "") + ljust((services ? "Status:" : "User:"), user_size) + Fx::uul + ' '
 					+ (sorting == "memory" ? Fx::ul : "") + rjust((mem_bytes ? "MemB" : "Mem%"), 5) + Fx::uul + ' '
 					+ (sorting.starts_with("cpu") ? Fx::ul : "") + rjust("Cpu%", 10) + Fx::uul + Fx::ub;
 		}
@@ -1296,7 +1303,7 @@ namespace Proc {
 
 		//? Draw details box if shown
 		if (show_detailed) {
-			const bool alive = detailed.status != "Dead";
+			const bool alive = detailed.status != "Stopped";
 			const int item_fit = floor((double)(d_width - 2) / 10);
 			const int item_width = floor((double)(d_width - 2) / min(item_fit, 7));
 
@@ -1318,8 +1325,8 @@ namespace Proc {
 									+ cjust(detailed.elapsed, item_width);
 			if (item_fit >= 3) out += cjust(detailed.io_read, item_width);
 			if (item_fit >= 4) out += cjust(detailed.io_write, item_width);
-			if (item_fit >= 5) out += cjust(detailed.parent, item_width, true);
-			if (item_fit >= 6) out += cjust(detailed.entry.user, item_width, true);
+			if (item_fit >= 5) out += cjust((services ? detailed.start : detailed.parent), item_width, true);
+			if (item_fit >= 6) out += cjust((services ? detailed.owner : detailed.entry.user), item_width, true);
 			if (item_fit >= 7) out += cjust(to_string(detailed.entry.threads), item_width);
 
 
@@ -1408,7 +1415,7 @@ namespace Proc {
 			//? Normal view line
 			if (not proc_tree) {
 				out += Mv::to(y+2+lc, x+1)
-					+ g_color + rjust(to_string(p.pid), 8) + ' '
+					+ g_color + rjust((services and p.pid == 0 ? "" : to_string(p.pid)), 8) + ' '
 					+ c_color + ljust(p.name, prog_size, true) + ' ' + end
 					+ (cmd_size > 0 ? g_color + ljust(p.cmd, cmd_size, true, p_wide_cmd[p.pid]) + Mv::to(y+2+lc, x+11+prog_size+cmd_size) + ' ' : "");
 			}
