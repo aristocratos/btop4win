@@ -266,12 +266,26 @@ namespace Proc {
 		_bstr_t PrivateMemory;
 		_bstr_t ReadTransferCount;
 		_bstr_t WriteTransferCount;
-		//_bstr_t Username;
 	};
 
-	struct WMIQuerys{
+	struct WMISvcEntry {
+		bool AcceptPause = false;
+		bool AcceptStop = false;
+		_bstr_t Name;
+		_bstr_t Caption;
+		_bstr_t Description;
+		uint32_t ProcessID;
+		_bstr_t ServiceType;
+		_bstr_t StartMode;
+		_bstr_t Owner;
+		_bstr_t State;
+
+	};
+
+	struct WMIProcQuerys{
 		_bstr_t WQL = L"WQL";
 		_bstr_t SELECT = L"SELECT * FROM Win32_Process";
+		_bstr_t SELECTSvc = L"SELECT * FROM Win32_Service";
 		_bstr_t ProcessID = L"ProcessID";
 		_bstr_t Name = L"Name";
 		_bstr_t CommandLine = L"CommandLine";
@@ -286,103 +300,200 @@ namespace Proc {
 		_bstr_t ParentProcessId = L"ParentProcessId";
 	};
 
+	struct WMISvcQuerys {
+		_bstr_t WQL = L"WQL";
+		_bstr_t SELECT = L"SELECT * FROM Win32_Service";
+		_bstr_t ProcessID = L"ProcessID";
+		_bstr_t AcceptPause = L"AcceptPause";
+		_bstr_t AcceptStop = L"AcceptStop";
+		_bstr_t Name = L"DisplayName";
+		_bstr_t Caption = L"Caption";
+		_bstr_t Description = L"Description";
+		_bstr_t ServiceType = L"ServiceType";
+		_bstr_t StartMode = L"StartMode";
+		_bstr_t Owner = L"StartName";
+		_bstr_t State = L"State";
+
+	};
+
 	atomic<uint64_t> WMItimer = 0;
 	robin_hood::unordered_flat_map<size_t, WMIEntry> WMIList;
+	robin_hood::unordered_flat_map<size_t, WMISvcEntry> WMISvcList;
 	std::mutex WMImutex;
 
-	//? WMI thread, collects process information once every second to augment missing information from the standard WIN32 API methods
-	void WMIProcs() {
-		WMIQuerys Q{};
+	//? WMI thread, collects process/service information once every second to augment missing information from the standard WIN32 API methods
+	void WMICollect() {
+		WMIProcQuerys QProc{};
+		WMISvcQuerys QSvc{};
 		while (not Global::quitting) {
 			auto timeStart = time_micros();
-			Shared::WbemEnumerator WMI;
 
-			if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
-				throw std::runtime_error("Proc::WMIProcs() [thread] -> WbemServices query failed with code: " + to_string(hr));
+			//* Processes
+			{
+				Shared::WbemEnumerator WMI;
+				robin_hood::unordered_flat_map<size_t, WMIEntry> newWMIList;
+				auto& Q = QProc;
+
+				if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
+					throw std::runtime_error("Proc::WMICollect() (Processes) [thread] -> WbemServices query failed with code: " + to_string(hr));
+				}
+
+				IWbemClassObject* result = NULL;
+				ULONG retCount = 0;
+
+				while (WMI.WbEnum->Next(WBEM_INFINITE, 1, &result, &retCount) == S_OK) {
+					Shared::WMIObjectReleaser rls(result);
+					if (retCount == 0) break;
+					size_t pid = 0;
+					{
+						Shared::VariantWrap ProcessId{};
+						if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
+						pid = ProcessId()->uintVal;
+					}
+					if (pid == 0) continue;
+
+					newWMIList[pid] = {};
+					auto& entry = newWMIList.at(pid);
+					{
+						Shared::VariantWrap ParentProcessId{};
+						if (result->Get(Q.ParentProcessId, 0, &ParentProcessId.val, 0, 0) == S_OK)
+							entry.ParentProcessId = ParentProcessId()->uintVal;
+					}
+					{
+						Shared::VariantWrap Name{};
+						if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
+							entry.Name = Name()->bstrVal;
+					}
+					{
+						Shared::VariantWrap CommandLine{};
+						if (result->Get(Q.CommandLine, 0, &CommandLine.val, 0, 0) == S_OK)
+							entry.CommandLine = CommandLine()->bstrVal;
+					}
+					{
+						Shared::VariantWrap ExecutablePath{};
+						if (result->Get(Q.ExecutablePath, 0, &ExecutablePath.val, 0, 0) == S_OK)
+							entry.ExecutablePath = ExecutablePath()->bstrVal;
+					}
+					{
+						Shared::VariantWrap KernelModeTime{};
+						if (result->Get(Q.KernelModeTime, 0, &KernelModeTime.val, 0, 0) == S_OK)
+							entry.KernelModeTime = KernelModeTime()->bstrVal;
+					}
+					{
+						Shared::VariantWrap UserModeTime{};
+						if (result->Get(Q.UserModeTime, 0, &UserModeTime.val, 0, 0) == S_OK)
+							entry.UserModeTime = UserModeTime()->bstrVal;
+					}
+					{
+						Shared::VariantWrap CreationDate{};
+						if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK)
+							entry.CreationDate = CreationDate()->bstrVal;
+					}
+					{
+						Shared::VariantWrap ThreadCount{};
+						if (result->Get(Q.ThreadCount, 0, &ThreadCount.val, 0, 0) == S_OK)
+							entry.ThreadCount = ThreadCount()->uintVal;
+					}
+					{
+						Shared::VariantWrap PrivateMemory{};
+						if (result->Get(Q.PrivateMemory, 0, &PrivateMemory.val, 0, 0) == S_OK)
+							entry.PrivateMemory = PrivateMemory()->bstrVal;
+					}
+					{
+						Shared::VariantWrap ReadTransferCount{};
+						if (result->Get(Q.ReadTransferCount, 0, &ReadTransferCount.val, 0, 0) == S_OK)
+							entry.ReadTransferCount = ReadTransferCount()->bstrVal;
+					}
+					{
+						Shared::VariantWrap WriteTransferCount{};
+						if (result->Get(Q.WriteTransferCount, 0, &WriteTransferCount.val, 0, 0) == S_OK)
+							entry.WriteTransferCount = WriteTransferCount()->bstrVal;
+					}
+				}
+				const std::lock_guard<std::mutex> lck(Proc::WMImutex);
+				Proc::WMIList.swap(newWMIList);
 			}
+				
+			//* Services
+			if (Config::getB("proc_services") or WMISvcList.empty()) {
+				Shared::WbemEnumerator WMI;
+				robin_hood::unordered_flat_map<size_t, WMISvcEntry> newWMISvcList;
+				auto& Q = QSvc;
 
-			robin_hood::unordered_flat_map<size_t, WMIEntry> newWMIList;
-			IWbemClassObject* result = NULL;
-			ULONG retCount = 0;
+				if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
+					throw std::runtime_error("Proc::WMICollect() (Services) [thread] -> WbemServices query failed with code: " + to_string(hr));
+				}
 
-			while (WMI.WbEnum->Next(WBEM_INFINITE, 1, &result, &retCount) == S_OK) {
-				Shared::WMIObjectReleaser rls(result);
-				if (retCount == 0) break;
-				size_t pid = 0;
-				{
-					Shared::VariantWrap ProcessId{};
-					if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
-					pid = ProcessId()->uintVal;
-				}
-				if (pid == 0) continue;
+				IWbemClassObject* result = NULL;
+				ULONG retCount = 0;
 
-				newWMIList[pid] = {};
-				auto& entry = newWMIList.at(pid);
-				{
-					Shared::VariantWrap ParentProcessId{};
-					if (result->Get(Q.ParentProcessId, 0, &ParentProcessId.val, 0, 0) == S_OK)
-						entry.ParentProcessId = ParentProcessId()->uintVal;
+				while (WMI.WbEnum->Next(WBEM_INFINITE, 1, &result, &retCount) == S_OK) {
+					Shared::WMIObjectReleaser rls(result);
+					if (retCount == 0) break;
+					size_t pid = 0;
+					{
+						Shared::VariantWrap ProcessId{};
+						if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
+						pid = ProcessId()->uintVal;
+					}
+
+					newWMISvcList[pid] = {};
+					auto& entry = newWMISvcList.at(pid);
+					{
+						Shared::VariantWrap AcceptPause{};
+						if (result->Get(Q.AcceptPause, 0, &AcceptPause.val, 0, 0) == S_OK)
+							entry.AcceptPause = (AcceptPause()->boolVal == VARIANT_TRUE);
+					}
+					{
+						Shared::VariantWrap AcceptStop{};
+						if (result->Get(Q.AcceptStop, 0, &AcceptStop.val, 0, 0) == S_OK)
+							entry.AcceptStop = (AcceptStop()->boolVal == VARIANT_TRUE);
+					}
+					{
+						Shared::VariantWrap Name{};
+						if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
+							entry.Name = Name()->bstrVal;
+					}
+					{
+						Shared::VariantWrap Caption{};
+						if (result->Get(Q.Caption, 0, &Caption.val, 0, 0) == S_OK)
+							entry.Caption = Caption()->bstrVal;
+					}
+					{
+						Shared::VariantWrap Description{};
+						if (result->Get(Q.Description, 0, &Description.val, 0, 0) == S_OK)
+							entry.Description = Description()->bstrVal;
+					}
+					{
+						Shared::VariantWrap ServiceType{};
+						if (result->Get(Q.ServiceType, 0, &ServiceType.val, 0, 0) == S_OK)
+							entry.ServiceType = ServiceType()->bstrVal;
+					}
+					{
+						Shared::VariantWrap StartMode{};
+						if (result->Get(Q.StartMode, 0, &StartMode.val, 0, 0) == S_OK)
+							entry.StartMode = StartMode()->bstrVal;
+					}
+					{
+						Shared::VariantWrap Owner{};
+						if (result->Get(Q.Owner, 0, &Owner.val, 0, 0) == S_OK)
+							entry.Owner = Owner()->bstrVal;
+					}
+					{
+						Shared::VariantWrap State{};
+						if (result->Get(Q.State, 0, &State.val, 0, 0) == S_OK)
+							entry.State = State()->bstrVal;
+					}
+					//Logger::debug(to_string(pid) + " | " + bstr2str(entry.Name) + " | " + bstr2str(entry.Caption) + " | " + bstr2str(entry.Description)
+					//	+ " | " + bstr2str(entry.ServiceType) + " | " + bstr2str(entry.StartMode) + " | " + bstr2str(entry.Owner) + " | " + bstr2str(entry.State));
+					//exit(0);
 				}
-				{
-					Shared::VariantWrap Name{};
-					if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
-						entry.Name = Name()->bstrVal;
-				}
-				{
-					Shared::VariantWrap CommandLine{};
-					if (result->Get(Q.CommandLine, 0, &CommandLine.val, 0, 0) == S_OK)
-						entry.CommandLine = CommandLine()->bstrVal;
-				}
-				{
-					Shared::VariantWrap ExecutablePath{};
-					if (result->Get(Q.ExecutablePath, 0, &ExecutablePath.val, 0, 0) == S_OK)
-						entry.ExecutablePath = ExecutablePath()->bstrVal;
-				}
-				{
-					Shared::VariantWrap KernelModeTime{};
-					if (result->Get(Q.KernelModeTime, 0, &KernelModeTime.val, 0, 0) == S_OK)
-						entry.KernelModeTime = KernelModeTime()->bstrVal;
-				}
-				{
-					Shared::VariantWrap UserModeTime{};
-					if (result->Get(Q.UserModeTime, 0, &UserModeTime.val, 0, 0) == S_OK)
-						entry.UserModeTime = UserModeTime()->bstrVal;
-				}
-				{
-					Shared::VariantWrap CreationDate{};
-					if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK)
-						entry.CreationDate = CreationDate()->bstrVal;
-				}
-				{
-					Shared::VariantWrap ThreadCount{};
-					if (result->Get(Q.ThreadCount, 0, &ThreadCount.val, 0, 0) == S_OK)
-						entry.ThreadCount = ThreadCount()->uintVal;
-				}
-				{
-					Shared::VariantWrap PrivateMemory{};
-					if (result->Get(Q.PrivateMemory, 0, &PrivateMemory.val, 0, 0) == S_OK)
-						entry.PrivateMemory = PrivateMemory()->bstrVal;
-				}
-				{
-					Shared::VariantWrap ReadTransferCount{};
-					if (result->Get(Q.ReadTransferCount, 0, &ReadTransferCount.val, 0, 0) == S_OK)
-						entry.ReadTransferCount = ReadTransferCount()->bstrVal;
-				}
-				{
-					Shared::VariantWrap WriteTransferCount{};
-					if (result->Get(Q.WriteTransferCount, 0, &WriteTransferCount.val, 0, 0) == S_OK)
-						entry.WriteTransferCount = WriteTransferCount()->bstrVal;
-				}
+				const std::lock_guard<std::mutex> lck(Proc::WMImutex);
+				Proc::WMISvcList.swap(newWMISvcList);
 			}
 
 			auto timeDone = time_micros();
-			auto timeSpent = timeDone - timeStart;
-
-			{
-				const std::lock_guard<std::mutex> lck(Proc::WMImutex);
-				Proc::WMIList.swap(newWMIList);
-				Proc::WMItimer = timeSpent;
-			}
+			Proc::WMItimer = timeDone - timeStart;
 
 			auto timeNext = timeStart + 1'000'000;
 			if (auto timeNow = time_micros(); timeNext > timeNow) 
@@ -457,8 +568,8 @@ namespace Shared {
 		//? Set up connection to WMI
 		Shared::WMI_init();
 
-		//? Start up WMI process info collector in background
-		std::thread(Proc::WMIProcs).detach();
+		//? Start up WMI system info collector in background
+		std::thread(Proc::WMICollect).detach();
 
 	}
 
@@ -1459,6 +1570,8 @@ namespace Net {
 namespace Proc {
 
 	vector<proc_info> current_procs;
+	vector<proc_info> current_svcs;
+	bool services_swap = false;
 	unordered_flat_map<string, string> uid_user;
 	string current_sort;
 	string current_filter;
@@ -1698,6 +1811,7 @@ namespace Proc {
 		const auto& per_core = Config::getB("proc_per_core");
 		const auto& tree = Config::getB("proc_tree");
 		const auto& show_detailed = Config::getB("show_detailed");
+		const auto& services = Config::getB("proc_services");
 		const size_t detailed_pid = Config::getI("detailed_pid");
 		bool should_filter = current_filter != filter;
 		if (should_filter) current_filter = filter;
@@ -1710,6 +1824,7 @@ namespace Proc {
 		FILETIME st;
 		::GetSystemTimeAsFileTime(&st);
 		const uint64_t systime = ULARGE_INTEGER{ st.dwLowDateTime, st.dwHighDateTime }.QuadPart;
+		std::lock_guard<std::mutex> lck(WMImutex);
 
 		const int cmult = (per_core) ? Shared::coreCount : 1;
 		bool got_detailed = false;
@@ -1719,15 +1834,12 @@ namespace Proc {
 		//* Use pids from last update if only changing filter, sorting or tree options
 		if (no_update and not current_procs.empty()) {
 			if (show_detailed and detailed_pid != detailed.last_pid) {
-				std::lock_guard<std::mutex> lck(WMImutex);
 				_collect_details(detailed_pid, systime, current_procs, Mem::get_totalMem());
 			}
 		}
 		//* ---------------------------------------------Collection start----------------------------------------------
 		else {
-			std::lock_guard<std::mutex> lck(WMImutex);
 			should_filter = true;
-
 			auto totalMem = Mem::get_totalMem();
 
 			//? Get cpu total times
@@ -1761,7 +1873,7 @@ namespace Proc {
 				if (Runner::stopping)
 					return current_procs;
 
-				size_t pid = pe.th32ProcessID;
+				const size_t pid = pe.th32ProcessID;
 				if (pid == 0) continue;
 				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pe.th32ProcessID));
 				const bool hasWMI = WMIList.contains(pid);
@@ -1914,12 +2026,49 @@ namespace Proc {
 
 			old_cputimes = cputimes;
 		}
+		
+		//* Collect info for services if currently displayed
+		if (services and not no_update) {
+
+			for (const auto& [pid, svc] : WMISvcList) {
+				
+				//? Check if pid already exists in current_svcs
+				auto find_old = rng::find(current_svcs, pid, &proc_info::pid);
+				if (find_old == current_svcs.end()) {
+					current_svcs.push_back({ pid });
+					find_old = current_svcs.end() - 1;
+				}
+
+				auto& new_svc = *find_old;
+
+				new_svc.name = svc.Name;
+				new_svc.cmd = svc.Caption;
+				new_svc.user = svc.State;
+				if (tree) new_svc.short_cmd = new_svc.cmd;
+
+				//? Find pid entry in current_procs
+				if (auto proc = rng::find(current_procs, pid, &proc_info::pid); proc != current_procs.end()) {
+					new_svc.cpu_c = proc->cpu_c;
+					new_svc.cpu_p = proc->cpu_p;
+					new_svc.mem = proc->mem;
+					new_svc.threads = proc->threads;
+				}
+
+			}
+
+			//? Clear missing services from current_svcs
+			auto eraser = rng::remove_if(current_svcs, [&](const auto& element) { return not WMISvcList.contains(element.pid); });
+			current_svcs.erase(eraser.begin(), eraser.end());
+		}
+
 		//* ---------------------------------------------Collection done-----------------------------------------------
+
+		auto& out_vec = (services ? current_svcs : current_procs);
 
 		//* Match filter if defined
 		if (should_filter) {
 			filter_found = 0;
-			for (auto& p : current_procs) {
+			for (auto& p : out_vec) {
 				if (not tree and not filter.empty()) {
 						if (not s_contains(to_string(p.pid), filter)
 						and not s_contains(p.name, filter)
@@ -1940,15 +2089,15 @@ namespace Proc {
 
 		//? Sort processes
 		if (sorted_change or not no_update) {
-			proc_sorter(current_procs, sorting, reverse, tree);
+			proc_sorter(out_vec, sorting, reverse, tree);
 		}
 
 		//* Generate tree view if enabled
 		if (tree and (not no_update or should_filter or sorted_change)) {
 			bool locate_selection = false;
 			if (auto find_pid = (collapse != -1 ? collapse : expand); find_pid != -1) {
-				auto collapser = rng::find(current_procs, find_pid, &proc_info::pid);
-				if (collapser != current_procs.end()) {
+				auto collapser = rng::find(out_vec, find_pid, &proc_info::pid);
+				if (collapser != out_vec.end()) {
 					if (collapse == expand) {
 						collapser->collapsed = not collapser->collapsed;
 					}
@@ -1965,23 +2114,23 @@ namespace Proc {
 			if (should_filter or not filter.empty()) filter_found = 0;
 
 			vector<tree_proc> tree_procs;
-			tree_procs.reserve(current_procs.size());
+			tree_procs.reserve(out_vec.size());
 
-			for (auto& p : current_procs) {
+			for (auto& p : out_vec) {
 				if (not v_contains(found, p.ppid)) p.ppid = 0;
 			}
 
 			//? Stable sort to retain selected sorting among processes with the same parent
-			rng::stable_sort(current_procs, rng::less{}, & proc_info::ppid);
+			rng::stable_sort(out_vec, rng::less{}, & proc_info::ppid);
 
 			//? Start recursive iteration over processes with the lowest shared parent pids
-			for (auto& p : rng::equal_range(current_procs, current_procs.at(0).ppid, rng::less{}, &proc_info::ppid)) {
-				_tree_gen(p, current_procs, tree_procs, 0, false, filter, false, no_update, should_filter);
+			for (auto& p : rng::equal_range(out_vec, out_vec.at(0).ppid, rng::less{}, &proc_info::ppid)) {
+				_tree_gen(p, out_vec, tree_procs, 0, false, filter, false, no_update, should_filter);
 			}
 
 			//? Recursive sort over tree structure to account for collapsed processes in the tree
 			int index = 0;
-			tree_sort(tree_procs, sorting, reverse, index, current_procs.size());
+			tree_sort(tree_procs, sorting, reverse, index, out_vec.size());
 
 			//? Add tree begin symbol to first item if childless
 			if (tree_procs.front().children.empty())
@@ -1992,20 +2141,20 @@ namespace Proc {
 				tree_procs.back().entry.get().prefix.replace(tree_procs.back().entry.get().prefix.size() - 8, 8, " └─ ");
 
 			//? Final sort based on tree index
-			rng::sort(current_procs, rng::less{}, & proc_info::tree_index);
+			rng::sort(out_vec, rng::less{}, & proc_info::tree_index);
 
 			//? Move current selection/view to the selected process when collapsing/expanding in the tree
 			if (locate_selection) {
-				int loc = rng::find(current_procs, Proc::selected_pid, &proc_info::pid)->tree_index;
+				int loc = rng::find(out_vec, Proc::selected_pid, &proc_info::pid)->tree_index;
 				if (Config::ints.at("proc_start") >= loc or Config::ints.at("proc_start") <= loc - Proc::select_max)
 					Config::ints.at("proc_start") = max(0, loc - 1);
 				Config::ints.at("proc_selected") = loc - Config::ints.at("proc_start") + 1;
 			}
 		}
 
-		numpids = (int)current_procs.size() - filter_found;
+		numpids = (int)out_vec.size() - filter_found;
 
-		return current_procs;
+		return out_vec;
 	}
 }
 

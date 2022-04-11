@@ -50,6 +50,8 @@ namespace Fx {
 	const string ubl = e + "25m";			//* Blink off
 	const string s = e + "9m";				//* Strike/crossed-out on
 	const string us = e + "29m";			//* Strike/crossed-out on/off
+	const string bul = b + ul;				//* Bold + underlined on
+	const string ubul = ub + uul;			//* Bold + underlined off
 
 	//* Reset foreground/background color and text effects
 	const string reset_base = e + "0m";

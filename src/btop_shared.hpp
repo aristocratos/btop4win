@@ -194,6 +194,7 @@ namespace Proc {
 	extern int selected_pid, start, selected, collapse, expand, selected_depth;
 	extern string selected_name;
 	extern atomic<uint64_t> WMItimer;
+	extern bool services_swap;
 
 	//? Contains the valid sorting options for processes
 	const vector<string> sort_vector = {

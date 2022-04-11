@@ -81,6 +81,8 @@ namespace Config {
 
 		{"proc_sorting",		"#* Processes sorting, \"pid\" \"program\" \"arguments\" \"threads\" \"user\" \"memory\" \"cpu lazy\" \"cpu direct\",\n"
 								"#* \"cpu lazy\" sorts top process over time (easier to follow), \"cpu direct\" updates top process directly."},
+		
+		{"proc_services",		"#* Show services in the process box instead of processes."},
 
 		{"proc_reversed",		"#* Reverse sorting order, True or False."},
 
@@ -212,6 +214,7 @@ namespace Config {
 		{"theme_background", true},
 		{"truecolor", true},
 		{"rounded_corners", true},
+		{"proc_services", false},
 		{"proc_reversed", false},
 		{"proc_tree", false},
 		{"proc_colors", true},

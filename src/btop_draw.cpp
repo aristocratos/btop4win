@@ -947,7 +947,7 @@ namespace Net {
 		string out;
 		out.reserve(width * height);
 		const string title_left = Theme::c("net_box") + Fx::ub + Symbols::title_left;
-		const string title_right = Theme::c("net_box") + Fx::ub + Symbols::title_right;
+		const string title_right = Theme::c("net_box") + Fx::ubul + Symbols::title_right;
 		const int i_size = min((int)selected_iface.size(), 10);
 		const long long down_max = (net_auto ? graph_max.at("download") : ((long long)(Config::getI("net_download")) << 20) / 8);
 		const long long up_max = (net_auto ? graph_max.at("upload") : ((long long)(Config::getI("net_upload")) << 20) / 8);
@@ -966,17 +966,17 @@ namespace Net {
 
 			out += Mv::to(y, x+width - i_size - 9) + title_left + Fx::b + Theme::c("hi_fg") + "<b " + Theme::c("title")
 				+ uresize(selected_iface, 10) + Theme::c("hi_fg") + " n>" + title_right
-				+ Mv::to(y, x+width - i_size - 15) + title_left + Theme::c("hi_fg") + (net.stat.at("download").offset + net.stat.at("upload").offset > 0 ? Fx::b : "") + 'z'
+				+ Mv::to(y, x+width - i_size - 15) + title_left + Theme::c("hi_fg") + (net.stat.at("download").offset + net.stat.at("upload").offset > 0 ? Fx::bul : "") + 'z'
 				+ Theme::c("title") + "ero" + title_right;
 			Input::mouse_mappings["b"] = {y, x+width - i_size - 8, 1, 3};
 			Input::mouse_mappings["n"] = {y, x+width - 6, 1, 3};
 			Input::mouse_mappings["z"] = {y, x+width - i_size - 14, 1, 4};
 			if (width - i_size - 20 > 6) {
-				out += Mv::to(y, x+width - i_size - 21) + title_left + Theme::c("hi_fg") + (net_auto ? Fx::b : "") + 'a' + Theme::c("title") + "uto" + title_right;
+				out += Mv::to(y, x+width - i_size - 21) + title_left + Theme::c("hi_fg") + (net_auto ? Fx::bul : "") + 'a' + Theme::c("title") + "uto" + title_right;
 				Input::mouse_mappings["a"] = {y, x+width - i_size - 20, 1, 4};
 			}
 			if (width - i_size - 20 > 13) {
-				out += Mv::to(y, x+width - i_size - 27) + title_left + Theme::c("title") + (net_sync ? Fx::b : "") + 's' + Theme::c("hi_fg")
+				out += Mv::to(y, x+width - i_size - 27) + title_left + Theme::c("title") + (net_sync ? Fx::bul : "") + 's' + Theme::c("hi_fg")
 					+ 'y' + Theme::c("title") + "nc" + title_right;
 				Input::mouse_mappings["y"] = {y, x+width - i_size - 26, 1, 4};
 			}
@@ -1108,6 +1108,7 @@ namespace Proc {
 		auto& graph_bg = Symbols::graph_symbols.at((graph_symbol == "default" ? Config::getS("graph_symbol") + "_up" : graph_symbol + "_up")).at(6);
 		auto& mem_bytes = Config::getB("proc_mem_bytes");
 		auto& vim_keys = Config::getB("vim_keys");
+		const auto& sorting = Config::getS("proc_sorting");
 		start = Config::getI("proc_start");
 		selected = Config::getI("proc_selected");
 		const int y = show_detailed ? Proc::y + 8 : Proc::y;
@@ -1226,24 +1227,28 @@ namespace Proc {
 			}
 
 			//? per-core, reverse, tree and sorting
-			const auto& sorting = Config::getS("proc_sorting");
 			const int sort_len = sorting.size();
 			const int sort_pos = x + width - sort_len - 8;
 
+			if (width > 65 + sort_len) {
+				out += Mv::to(y, sort_pos - 35) + title_left + (Config::getB("proc_per_core") ? Fx::bul : "") + Theme::c("title")
+					+ "per-" + Theme::c("hi_fg") + 'c' + Theme::c("title") + "ore" + Fx::ubul + title_right;
+				Input::mouse_mappings["c"] = {y, sort_pos - 34, 1, 8};
+			}
 			if (width > 55 + sort_len) {
-				out += Mv::to(y, sort_pos - 25) + title_left + (Config::getB("proc_per_core") ? Fx::b : "") + Theme::c("title")
-					+ "per-" + Theme::c("hi_fg") + 'c' + Theme::c("title") + "ore" + Fx::ub + title_right;
-				Input::mouse_mappings["c"] = {y, sort_pos - 24, 1, 8};
+				out += Mv::to(y, sort_pos - 25) + title_left + (Config::getB("proc_reversed") ? Fx::bul : "") + Theme::c("hi_fg")
+					+ 'r' + Theme::c("title") + "everse" + Fx::ubul + title_right;
+				Input::mouse_mappings["r"] = {y, sort_pos - 24, 1, 7};
 			}
 			if (width > 45 + sort_len) {
-				out += Mv::to(y, sort_pos - 15) + title_left + (Config::getB("proc_reversed") ? Fx::b : "") + Theme::c("hi_fg")
-					+ 'r' + Theme::c("title") + "everse" + Fx::ub + title_right;
-				Input::mouse_mappings["r"] = {y, sort_pos - 14, 1, 7};
+				out += Mv::to(y, sort_pos - 16) + title_left + (Config::getB("proc_tree") ? Fx::bul : "") + Theme::c("title") + "tre"
+					+ Theme::c("hi_fg") + 'e' + Fx::ubul + title_right;
+				Input::mouse_mappings["e"] = {y, sort_pos - 15, 1, 4};
 			}
 			if (width > 35 + sort_len) {
-				out += Mv::to(y, sort_pos - 6) + title_left + (Config::getB("proc_tree") ? Fx::b : "") + Theme::c("title") + "tre"
-					+ Theme::c("hi_fg") + 'e' + Fx::ub + title_right;
-				Input::mouse_mappings["e"] = {y, sort_pos - 5, 1, 4};
+				out += Mv::to(y, sort_pos - 10) + title_left + (Config::getB("proc_services") ? Fx::bul : "") + Theme::c("hi_fg") + 's' + Theme::c("title") + "ervices"
+					+ Fx::ubul + title_right;
+				Input::mouse_mappings["s"] = { y, sort_pos - 9, 1, 4 };
 			}
 			out += Mv::to(y, sort_pos) + title_left + Fx::b + Theme::c("hi_fg") + "< " + Theme::c("title") + sorting + Theme::c("hi_fg")
 				+ " >" + Fx::ub + title_right;
@@ -1275,17 +1280,17 @@ namespace Proc {
 			//? Labels for fields in list
 			if (not proc_tree)
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
-					+ rjust("Pid:", 8) + ' '
-					+ ljust("Program:", prog_size) + ' '
-					+ (cmd_size > 0 ? ljust("Command:", cmd_size) : "") + ' ';
+					+ (sorting == "pid" ? Fx::ul : "") + rjust("Pid:", 8) + Fx::uul + ' '
+					+ (sorting == "name" ? Fx::ul : "") + ljust("Program:", prog_size) + Fx::uul + ' '
+					+ (cmd_size > 0 ? (sorting == "command" ? Fx::ul : "") + ljust("Command:", cmd_size) + Fx::uul : "") + ' ';
 			else
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
-					+ ljust("Tree:", tree_size) + ' ';
+					+ (is_in(sorting, "pid", "name", "command") ? Fx::ul : "") + ljust("Tree:", tree_size) + Fx::uul + ' ';
 
-			out += (thread_size > 0 ? Mv::l(4) + "Threads: " : "")
-					+ ljust("User:", user_size) + ' '
-					+ rjust((mem_bytes ? "MemB" : "Mem%"), 5) + ' '
-					+ rjust("Cpu%", 10) + Fx::ub;
+			out += (thread_size > 0 ? Mv::l(4) + (sorting == "threads" ? Fx::ul : "") + "Threads: " + Fx::uul : "")
+					+ (sorting == "user" ? Fx::ul : "") + ljust("User:", user_size) + Fx::uul + ' '
+					+ (sorting == "memory" ? Fx::ul : "") + rjust((mem_bytes ? "MemB" : "Mem%"), 5) + Fx::uul + ' '
+					+ (sorting.starts_with("cpu") ? Fx::ul : "") + rjust("Cpu%", 10) + Fx::uul + Fx::ub;
 		}
 		//* End of redraw block
 
