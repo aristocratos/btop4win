@@ -208,6 +208,16 @@ namespace Proc {
 		"cpu lazy",
 	};
 
+	//? Contains the valid sorting options for services
+	const vector<string> sort_vector_service = {
+		"service",
+		"caption",
+		"status",
+		"memory",
+		"cpu direct",
+		"cpu lazy",
+	};
+
 	//? Translation from process state char to explanative string
 	const unordered_flat_map<char, string> proc_states = {
 		{'R', "Running"},
@@ -248,6 +258,8 @@ namespace Proc {
 		deque<long long> cpu_percent;
 		deque<long long> mem_bytes;
 		double mem_percent = 0.0;
+		bool can_pause = false;
+		bool can_stop = false;
 	};
 
 	//? Contains all info for proc detailed box

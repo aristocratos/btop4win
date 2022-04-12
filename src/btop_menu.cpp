@@ -562,6 +562,16 @@ namespace Menu {
 				"processes.",
 				"",
 				"True or False."},
+			{"services_sorting",
+				"Services sorting option.",
+				"",
+				"Possible values:",
+				"\"service\", \"caption\", \"status\", \"memory\",",
+				"\"cpu lazy\" and \"cpu direct\".",
+				"",
+				"\"cpu lazy\" updates top service over time.",
+				"\"cpu direct\" updates top service",
+				"directly."},
 			{"proc_reversed",
 				"Reverse processes sorting order.",
 				"",
@@ -982,6 +992,7 @@ namespace Menu {
 			{"log_level", std::cref(Logger::log_levels)},
 			{"temp_scale", std::cref(Config::temp_scales)},
 			{"proc_sorting", std::cref(Proc::sort_vector)},
+			{"services_sorting", std::cref(Proc::sort_vector_service)},
 			{"graph_symbol", std::cref(Config::valid_graph_symbols)},
 			{"graph_symbol_cpu", std::cref(Config::valid_graph_symbols_def)},
 			{"graph_symbol_mem", std::cref(Config::valid_graph_symbols_def)},
@@ -1175,7 +1186,7 @@ namespace Menu {
 					Logger::set(optList.at(i));
 					Logger::info("Logger set to " + optList.at(i));
 				}
-				else if (is_in(option, "proc_sorting", "cpu_sensor") or option.starts_with("graph_symbol") or option.starts_with("cpu_graph_"))
+				else if (is_in(option, "proc_sorting", "services_sorting", "cpu_sensor") or option.starts_with("graph_symbol") or option.starts_with("cpu_graph_"))
 					screen_redraw = true;
 			}
 			else

@@ -22,6 +22,8 @@ tab-size = 4
 #include <numeric>
 #include <mutex>
 #include <chrono>
+#include <locale>
+#include <codecvt>
 
 #define _WIN32_DCOM
 #define _WIN32_WINNT 0x0600
@@ -115,8 +117,9 @@ namespace Tools {
 
 	string bstr2str(BSTR source) {
 		if (source == nullptr) return "";
-		_bstr_t wrapped_bstr = _bstr_t(source);
-		return string(CW2A(wrapped_bstr));
+		using convert_type = std::codecvt_utf8<wchar_t>;
+		std::wstring_convert<convert_type, wchar_t> converter;
+		return converter.to_bytes(_bstr_t(source));
 	}
 }
 
@@ -1585,7 +1588,10 @@ namespace Proc {
 		vector<tree_proc> children;
 	};
 
-	void proc_sorter(vector<proc_info>& proc_vec, const string& sorting, const bool reverse, const bool tree = false) {
+	void proc_sorter(vector<proc_info>& proc_vec, string sorting, const bool reverse, const bool tree = false, const bool services = false) {
+		if (services and sorting == "service") sorting = "program";
+		else if (services and sorting == "caption") sorting = "command";
+		else if (services and sorting == "status") sorting = "user";
 		if (reverse) {
 			switch (v_index(sort_vector, sorting)) {
 			case 0: rng::stable_sort(proc_vec, rng::less{}, &proc_info::pid); 		break;
@@ -1757,6 +1763,8 @@ namespace Proc {
 			detailed.owner = bstr2str(svc.Owner);
 			detailed.start = bstr2str(svc.StartMode);
 			detailed.description = bstr2str(svc.Description);
+			detailed.can_pause = svc.AcceptPause;
+			detailed.can_stop = svc.AcceptStop;
 		}
 
 		if (detailed.status == "Running") {
@@ -1813,13 +1821,13 @@ namespace Proc {
 
 	//* Collects process information
 	auto collect(const bool no_update) -> vector<proc_info>& {
-		const auto& sorting = Config::getS("proc_sorting");
+		const auto& services = Config::getB("proc_services");
+		const auto& sorting = (services ? Config::getS("services_sorting") : Config::getS("proc_sorting"));
 		const auto& reverse = Config::getB("proc_reversed");
 		const auto& filter = Config::getS("proc_filter");
 		const auto& per_core = Config::getB("proc_per_core");
-		const auto& tree = Config::getB("proc_tree");
+		const bool tree = (not services and Config::getB("proc_tree"));
 		const auto& show_detailed = Config::getB("show_detailed");
-		const auto& services = Config::getB("proc_services");
 		const auto& detailed_pid = Config::getI("detailed_pid");
 		const auto& detailed_name = Config::getS("detailed_name");
 		bool should_filter = current_filter != filter;
@@ -2039,7 +2047,6 @@ namespace Proc {
 		
 		//* Collect info for services if currently displayed
 		if (services and not no_update) {
-			if (tree) Config::bools.at("proc_tree") = false;
 			bool got_detailed = false;
 			for (const auto& [name, svc] : WMISvcList) {
 				
@@ -2115,7 +2122,7 @@ namespace Proc {
 
 		//? Sort processes
 		if (sorted_change or not no_update) {
-			proc_sorter(out_vec, sorting, reverse, tree);
+			proc_sorter(out_vec, sorting, reverse, tree, services);
 		}
 
 		//* Generate tree view if enabled

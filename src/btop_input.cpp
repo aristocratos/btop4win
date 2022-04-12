@@ -263,16 +263,32 @@ namespace Input {
 						return;
 				}
 				else if (key == "left" or (vim_keys and key == "h")) {
-					int cur_i = v_index(Proc::sort_vector, Config::getS("proc_sorting"));
-					if (--cur_i < 0)
-						cur_i = Proc::sort_vector.size() - 1;
-					Config::set("proc_sorting", Proc::sort_vector.at(cur_i));
+					if (Config::getB("proc_services")) {
+						int cur_i = v_index(Proc::sort_vector_service, Config::getS("services_sorting"));
+						if (--cur_i < 0)
+							cur_i = Proc::sort_vector_service.size() - 1;
+						Config::set("services_sorting", Proc::sort_vector_service.at(cur_i));
+					}
+					else {
+						int cur_i = v_index(Proc::sort_vector, Config::getS("proc_sorting"));
+						if (--cur_i < 0)
+							cur_i = Proc::sort_vector.size() - 1;
+						Config::set("proc_sorting", Proc::sort_vector.at(cur_i));
+					}
 				}
 				else if (key == "right" or (vim_keys and key == "l")) {
-					int cur_i = v_index(Proc::sort_vector, Config::getS("proc_sorting"));
-					if (std::cmp_greater(++cur_i, Proc::sort_vector.size() - 1))
-						cur_i = 0;
-					Config::set("proc_sorting", Proc::sort_vector.at(cur_i));
+					if (Config::getB("proc_services")) {
+						int cur_i = v_index(Proc::sort_vector_service, Config::getS("services_sorting"));
+						if (std::cmp_greater(++cur_i, Proc::sort_vector_service.size() - 1))
+							cur_i = 0;
+						Config::set("services_sorting", Proc::sort_vector_service.at(cur_i));
+					}
+					else {
+						int cur_i = v_index(Proc::sort_vector, Config::getS("proc_sorting"));
+						if (std::cmp_greater(++cur_i, Proc::sort_vector.size() - 1))
+							cur_i = 0;
+						Config::set("proc_sorting", Proc::sort_vector.at(cur_i));
+					}
 				}
 				else if (is_in(key, "f", "/")) {
 					Config::flip("proc_filtering");
@@ -304,7 +320,7 @@ namespace Input {
 								const auto& current_selection = Config::getI("proc_selected");
 								if (current_selection == line - y - 1) {
 									redraw = true;
-									if (Config::getB("proc_tree")) {
+									if (not Config::getB("proc_services") and Config::getB("proc_tree")) {
 										const int x_pos = col - Proc::x;
 										const int offset = Config::getI("selected_depth") * 3;
 										if (x_pos > offset and x_pos < 4 + offset) {
@@ -353,11 +369,11 @@ namespace Input {
 						if (Config::getI("proc_last_selected") > 0) Config::set("proc_selected", Config::getI("proc_last_selected"));
 						Config::set("proc_last_selected", 0);
 						Config::set("detailed_pid", 0);
-						Config::set("detailed_name", "");
+						Config::set("detailed_name", ""s);
 						Config::set("show_detailed", false);
 					}
 				}
-				else if (is_in(key, "+", "-", "space") and Config::getB("proc_tree") and Config::getI("proc_selected") > 0) {
+				else if (is_in(key, "+", "-", "space") and not Config::getB("proc_services") and Config::getB("proc_tree") and Config::getI("proc_selected") > 0) {
 					atomic_wait(Runner::active);
 					auto& pid = Config::getI("selected_pid");
 					if (key == "+" or key == "space") Proc::expand = pid;
@@ -372,10 +388,12 @@ namespace Input {
 				//}
 				else if (key == "s") {
 					atomic_wait(Runner::active);
-					if (Config::getB("proc_tree")) Config::set("proc_tree", false);
 					Config::flip("proc_services");
 					Config::set("proc_selected", 0);
-					//Config::set("show_detailed", false);
+					Config::set("proc_last_selected", 0);
+					Config::set("detailed_pid", 0);
+					Config::set("detailed_name", ""s);
+					Config::set("show_detailed", false);
 					no_update = false;
 				}
 				else if (is_in(key, "up", "down", "page_up", "page_down", "home", "end") or (vim_keys and is_in(key, "j", "k", "g", "G"))) {

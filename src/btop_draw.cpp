@@ -1099,7 +1099,8 @@ namespace Proc {
 
 	string draw(const vector<proc_info>& plist, const bool force_redraw, const bool data_same) {
 		if (Runner::stopping) return "";
-		auto& proc_tree = Config::getB("proc_tree");
+		auto& services = Config::getB("proc_services");
+		const bool proc_tree = (not services and Config::getB("proc_tree"));
 		const bool show_detailed = (Config::getB("show_detailed") and cmp_equal(Proc::detailed.last_pid, Config::getI("detailed_pid")));
 		const bool proc_gradient = (Config::getB("proc_gradient") and not Config::getB("lowcolor") and Theme::gradients.contains("proc"));
 		auto& proc_colors = Config::getB("proc_colors");
@@ -1108,8 +1109,7 @@ namespace Proc {
 		auto& graph_bg = Symbols::graph_symbols.at((graph_symbol == "default" ? Config::getS("graph_symbol") + "_up" : graph_symbol + "_up")).at(6);
 		auto& mem_bytes = Config::getB("proc_mem_bytes");
 		auto& vim_keys = Config::getB("vim_keys");
-		auto& services = Config::getB("proc_services");
-		const auto& sorting = Config::getS("proc_sorting");
+		auto& sorting = (services ? Config::getS("services_sorting") : Config::getS("proc_sorting"));
 		start = Config::getI("proc_start");
 		selected = Config::getI("proc_selected");
 		const int y = show_detailed ? Proc::y + 8 : Proc::y;
@@ -1167,16 +1167,39 @@ namespace Proc {
 				out += Mv::to(d_y, d_x - 1) + Theme::c("proc_box") + Symbols::div_up + Mv::to(y, d_x - 1) + Symbols::div_down + Theme::c("div_line");
 				for (const int& i : iota(1, 8)) out += Mv::to(d_y + i, d_x - 1) + Symbols::v_line;
 
-				const string& t_color = (not alive or selected > 0 ? Theme::c("inactive_fg") : Theme::c("title"));
-				const string& hi_color = (not alive or selected > 0 ? t_color : Theme::c("hi_fg"));
+				const string& t_color = ((not services and not alive) or selected > 0 ? Theme::c("inactive_fg") : Theme::c("title"));
+				const string& hi_color = ((not services and not alive) or selected > 0 ? t_color : Theme::c("hi_fg"));
 				const string hide = (selected > 0 ? t_color + "hide " : Theme::c("title") + "hide " + Theme::c("hi_fg"));
 				int mouse_x = d_x + 2;
 				out += Mv::to(d_y, d_x + 1);
-				
-				
-				out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;
-				if (alive and selected == 0) Input::mouse_mappings["t"] = {d_y, mouse_x, 1, 9};
-				mouse_x += 11;
+				if (services) {
+					if (detailed.can_stop and detailed.status == "Running") {
+						out += Fx::ub + title_left + Fx::b + t_color + 's' + hi_color + 't' + t_color + "op" + Fx::ub + title_right;
+						if (alive and selected == 0) Input::mouse_mappings["t"] = { d_y, mouse_x, 1, 4 };
+						mouse_x += 6;
+					}
+					else if (detailed.status == "Stopped") {
+						out += Fx::ub + title_left + Fx::b + t_color + 's' + hi_color + 't' + t_color + "art" + Fx::ub + title_right;
+						if (alive and selected == 0) Input::mouse_mappings["t"] = { d_y, mouse_x, 1, 5 };
+						mouse_x += 7;
+					}
+
+					if (detailed.can_pause and detailed.status == "Running") {
+						out += Fx::ub + title_left + Fx::b + t_color + "pa" + hi_color + 'u' + t_color + "se" + Fx::ub + title_right;
+						if (alive and selected == 0) Input::mouse_mappings["u"] = { d_y, mouse_x, 1, 5 };
+						mouse_x += 7;
+					}
+					else if (detailed.status == "Paused") {
+						out += Fx::ub + title_left + Fx::b + t_color + "contin" + hi_color + 'u' + t_color + 'e' + Fx::ub + title_right;
+						if (alive and selected == 0) Input::mouse_mappings["u"] = { d_y, mouse_x, 1, 8 };
+						mouse_x += 10;
+					}
+				}
+				else {
+					out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;
+					if (alive and selected == 0) Input::mouse_mappings["t"] = { d_y, mouse_x, 1, 9 };
+					mouse_x += 11;
+				}
 				
 				/*out += title_left + hi_color + Fx::b + (vim_keys ? 'K' : 'k') + t_color + "ill" + Fx::ub + title_right
 					+ title_left + hi_color + Fx::b + 's' + t_color + "ignals" + Fx::ub + title_right
@@ -1272,9 +1295,16 @@ namespace Proc {
 				if (selected > 0) Input::mouse_mappings["enter"] = {y + height - 1, mouse_x, 1, 6};
 				mouse_x += 8;
 			
-			out += title_left_down + Fx::b + hi_color + 't' + t_color + "erminate" + Fx::ub + title_right_down;
-			if (selected > 0) Input::mouse_mappings["t"] = {y + height - 1, mouse_x, 1, 9};
-			mouse_x += 11;
+			if (services) {
+				out += title_left_down + Fx::b + t_color + "s" + hi_color + 't' + t_color + "art/s" + hi_color + 't' + t_color + "op" + Fx::ub + title_right_down;
+				if (selected > 0) Input::mouse_mappings["t"] = { y + height - 1, mouse_x, 1, 10 };
+				mouse_x += 12;
+			}
+			else {
+				out += title_left_down + Fx::b + hi_color + 't' + t_color + "erminate" + Fx::ub + title_right_down;
+				if (selected > 0) Input::mouse_mappings["t"] = { y + height - 1, mouse_x, 1, 9 };
+				mouse_x += 11;
+			}
 			
 			/*if (width > 55) {
 				out += title_left_down + Fx::b + hi_color + (vim_keys ? 'K' : 'k') + t_color + "ill" + Fx::ub + title_right_down;
@@ -1287,15 +1317,15 @@ namespace Proc {
 			//? Labels for fields in list
 			if (not proc_tree)
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
-					+ (sorting == "pid" ? Fx::ul : "") + rjust("Pid:", 8) + Fx::uul + ' '
-					+ (sorting == "name" ? Fx::ul : "") + ljust((services ? "Service:" : "Program:"), prog_size) + Fx::uul + ' '
-					+ (cmd_size > 0 ? (sorting == "command" ? Fx::ul : "") + ljust((services ? "Caption:" : "Command:"), cmd_size) + Fx::uul : "") + ' ';
+					+ (is_in(sorting, "pid", "service") ? Fx::ul : "") + rjust((services ? "Service:" : "Pid:"), 8) + (services ? "" : Fx::uul) + ' '
+					+ (is_in(sorting, "name", "service") ? Fx::ul : "") + ljust((services ? "" : "Program:"), prog_size) + Fx::uul + ' '
+					+ (cmd_size > 0 ? (is_in(sorting, "command", "caption") ? Fx::ul : "") + ljust((services ? "Caption:" : "Command:"), cmd_size) + Fx::uul : "") + ' ';
 			else
 				out += Mv::to(y+1, x+1) + Theme::c("title") + Fx::b
 					+ (is_in(sorting, "pid", "name", "command") ? Fx::ul : "") + ljust("Tree:", tree_size) + Fx::uul + ' ';
 
 			out += (thread_size > 0 ? Mv::l(4) + (sorting == "threads" ? Fx::ul : "") + "Threads: " + Fx::uul : "")
-					+ (sorting == "user" ? Fx::ul : "") + ljust((services ? "Status:" : "User:"), user_size) + Fx::uul + ' '
+					+ (is_in(sorting, "user", "status") ? Fx::ul : "") + ljust((services ? "Status:" : "User:"), user_size) + Fx::uul + ' '
 					+ (sorting == "memory" ? Fx::ul : "") + rjust((mem_bytes ? "MemB" : "Mem%"), 5) + Fx::uul + ' '
 					+ (sorting.starts_with("cpu") ? Fx::ul : "") + rjust("Cpu%", 10) + Fx::uul + Fx::ub;
 		}
@@ -1415,8 +1445,8 @@ namespace Proc {
 			//? Normal view line
 			if (not proc_tree) {
 				out += Mv::to(y+2+lc, x+1)
-					+ g_color + rjust((services and p.pid == 0 ? "" : to_string(p.pid)), 8) + ' '
-					+ c_color + ljust(p.name, prog_size, true) + ' ' + end
+					+ (services ? "" : g_color + rjust(to_string(p.pid), 8) + ' ')
+					+ c_color + ljust(p.name, prog_size + (services ? 9 : 0), true) + ' ' + end
 					+ (cmd_size > 0 ? g_color + ljust(p.cmd, cmd_size, true, p_wide_cmd[p.pid]) + Mv::to(y+2+lc, x+11+prog_size+cmd_size) + ' ' : "");
 			}
 			//? Tree view line

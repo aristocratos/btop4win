@@ -84,6 +84,9 @@ namespace Config {
 		
 		{"proc_services",		"#* Show services in the process box instead of processes."},
 
+		{"services_sorting",	"#* Services sorting, \"service\" \"caption\" \"status\" \"memory\" \"cpu lazy\" \"cpu direct\",\n"
+								"#* \"cpu lazy\" sorts top service over time (easier to follow), \"cpu direct\" updates top service directly."},
+
 		{"proc_reversed",		"#* Reverse sorting order, True or False."},
 
 		{"proc_tree",			"#* Show processes as a tree."},
@@ -192,6 +195,7 @@ namespace Config {
 		{"graph_symbol_net", "default"},
 		{"graph_symbol_proc", "default"},
 		{"proc_sorting", "cpu lazy"},
+		{"services_sorting", "cpu lazy"},
 		{"cpu_graph_upper", "total"},
 		{"cpu_graph_lower", "total"},
 		{"cpu_sensor", "Auto"},
@@ -400,6 +404,12 @@ namespace Config {
 
 		else if (name == "presets" and not presetsValid(value))
 			return false;
+
+		else if (name == "proc_sorting" and not v_contains(Proc::sort_vector, value))
+			validError = "Invalid process sorting option!";
+
+		else if (name == "services_sorting" and not v_contains(Proc::sort_vector_service, value))
+			validError = "Invalid services sorting option!";
 
 		else if (name == "cpu_core_map") {
 			const auto maps = ssplit(value);
