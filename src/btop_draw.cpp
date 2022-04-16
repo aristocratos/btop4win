@@ -688,7 +688,6 @@ namespace Mem {
 		if (Runner::stopping) return "";
 		if (force_redraw) redraw = true;
 		auto& show_swap = Config::getB("show_page");
-		auto& swap_disk = Config::getB("page_disk");
 		auto& show_disks = Config::getB("show_disks");
 		auto& show_io_stat = Config::getB("show_io_stat");
 		auto& io_mode = Config::getB("io_mode");
@@ -712,7 +711,7 @@ namespace Mem {
 			//? Mem graphs and meters
 			
 			for (const string name : { "used", "available", "cached", "commit" }) {
-				const string color = (name == "commit" ? "free" : name);
+				const string color = (name == "commit" ? "available" : name == "available" ? "free" : name);
 				if (use_graphs)
 					mem_graphs[name] = Draw::Graph{mem_meter, graph_height, color, mem.percent.at(name), graph_symbol};
 				else
@@ -794,7 +793,7 @@ namespace Mem {
 
 		out += Mv::to(y + 1, x + 2) + Theme::c("title") + Fx::b + "Total:" + rjust(floating_humanizer(Mem::totalMem), mem_width - 9) + Fx::ub + Theme::c("main_fg");
 		vector<string> comb_names = {"used", "available", "cached", "commit"};
-		if (show_swap and has_swap and not swap_disk) comb_names.insert(comb_names.end(), { "page_used", "page_free" });
+		if (show_swap and has_swap) comb_names.insert(comb_names.end(), { "page_used", "page_free" });
 		for (const auto& name : comb_names) {
 			if (cy > height - 4) break;
 			string title;
@@ -845,7 +844,7 @@ namespace Mem {
 					const auto& disk = disks.at(mount);
 					if (disk.io_read.empty()) continue;
 					const string total = floating_humanizer(disk.total, not big_disk);
-					out += Mv::to(y+1+cy, x+1+cx) + divider + Theme::c("title") + Fx::b + uresize(disk.name, disks_width - 8) + Mv::to(y+1+cy, x+cx + disks_width - total.size())
+					out += Mv::to(y+1+cy, x+1+cx) + divider + Theme::c("title") + Fx::b + uresize(mount.front() + ": "s + disk.name, disks_width - 8) + Mv::to(y + 1 + cy, x + cx + disks_width - total.size())
 						+ trans(total) + Fx::ub;
 					if (big_disk) {
 						const string used_percent = to_string(disk.used_percent);
@@ -886,7 +885,7 @@ namespace Mem {
 					const string human_used = floating_humanizer(disk.used, not big_disk);
 					const string human_free = floating_humanizer(disk.free, not big_disk);
 
-					out += Mv::to(y+1+cy, x+1+cx) + divider + Theme::c("title") + Fx::b + uresize(disk.name, disks_width - 8) + Mv::to(y+1+cy, x+cx + disks_width - human_total.size())
+					out += Mv::to(y+1+cy, x+1+cx) + divider + Theme::c("title") + Fx::b + uresize(mount.front() + ": "s + disk.name, disks_width - 8) + Mv::to(y + 1 + cy, x + cx + disks_width - human_total.size())
 						+ trans(human_total) + Fx::ub + Theme::c("main_fg");
 					if (big_disk and not human_io.empty())
 						out += Mv::to(y+1+cy, x+1+cx + round((double)disks_width / 2) - round((double)human_io.size() / 2) - 1) + hu_div + human_io + hu_div;
@@ -1619,7 +1618,6 @@ namespace Draw {
 		if (Mem::shown) {
 			using namespace Mem;
 			auto& show_disks = Config::getB("show_disks");
-			auto& swap_disk = Config::getB("page_disk");
 			auto& mem_graphs = Config::getB("mem_graphs");
 
 			width = round((double)Term::width * (Proc::shown ? width_p : 100) / 100);
@@ -1640,8 +1638,8 @@ namespace Draw {
 			else
 				mem_width = width - 1;
 
-			item_height = has_swap and not swap_disk ? 6 : 4;
-			if (height - (has_swap and not swap_disk ? 3 : 2) > 2 * item_height)
+			item_height = has_swap ? 6 : 4;
+			if (height - (has_swap ? 3 : 2) > 2 * item_height)
 				mem_size = 3;
 			else if (mem_width > 25)
 				mem_size = 2;
@@ -1652,7 +1650,7 @@ namespace Draw {
 			if (mem_size == 1) mem_meter += 6;
 
 			if (mem_graphs) {
-				graph_height = max(1, (int)round((double)((height - (has_swap and not swap_disk ? 2 : 1)) - (mem_size == 3 ? 2 : 1) * item_height) / item_height));
+				graph_height = max(1, (int)round((double)((height - (has_swap ? 2 : 1)) - (mem_size == 3 ? 2 : 1) * item_height) / item_height));
 				if (graph_height > 1) mem_meter += 6;
 			}
 			else

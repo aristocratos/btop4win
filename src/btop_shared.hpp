@@ -118,15 +118,11 @@ namespace Mem {
 	extern string box;
 	extern int x, y, width, height, min_width, min_height;
 	extern bool has_swap, shown, redraw;
-	//const array<string, 4> mem_names = {"used", "available", "virtual", "free"};
-	//const array<string, 2> swap_names = {"page_used", "page_free"};
 	extern int disk_ios;
 	extern int64_t totalMem;
 
 	struct disk_info {
-		std::filesystem::path dev;
 		string name;
-		std::filesystem::path stat = "";
 		int64_t total = 0, used = 0, free = 0;
 		int used_percent = 0, free_percent = 0;
 		array<int64_t, 3> old_io = {0, 0, 0};

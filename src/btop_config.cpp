@@ -148,13 +148,9 @@ namespace Config {
 
 		{"show_page", 			"#* If page memory should be shown in memory box."},
 
-		{"page_disk", 			"#* Show page memory as a disk, ignores show_page value above, inserts itself after first disk."},
-
 		{"show_disks", 			"#* If mem box should be split to also show disks info."},
 
 		{"only_physical", 		"#* Filter out non physical disks. Set this to False to include network disks, RAM disks and similar."},
-
-		{"use_fstab", 			"#* Read disks list from /etc/fstab. This also disables only_physical."},
 
 		{"disk_free_priv",		"#* Set to true to show available disk space for privileged users."},
 
@@ -238,10 +234,8 @@ namespace Config {
 		{"mem_graphs", true},
 		{"mem_below_net", false},
 		{"show_page", true},
-		{"page_disk", true},
 		{"show_disks", true},
 		{"only_physical", true},
-		{"use_fstab", true},
 		{"show_io_stat", true},
 		{"io_mode", false},
 		{"base_10_sizes", false},

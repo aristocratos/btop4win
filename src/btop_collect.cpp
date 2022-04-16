@@ -45,6 +45,7 @@ tab-size = 4
 #include <comdef.h>
 #include <Wbemidl.h>
 #pragma comment(lib, "wbemuuid.lib")
+#include <winioctl.h>
 
 #define LODWORD(_qw)    ((DWORD)(_qw))
 #define HIDWORD(_qw)    ((DWORD)(((_qw) >> 32) & 0xffffffff))
@@ -194,7 +195,7 @@ namespace Cpu {
 }
 
 namespace Mem {
-	double old_uptime;
+	uint64_t old_systime;
 
 	int64_t get_totalMem();
 }
@@ -558,7 +559,7 @@ namespace Shared {
 		std::thread(Cpu::loadAVG_init).detach();
 
 		//? Init for namespace Mem
-		Mem::old_uptime = system_uptime();
+		Mem::old_systime = GetTickCount64();
 		Mem::collect();
 
 		//? Set up connection to WMI
@@ -1120,7 +1121,6 @@ namespace Mem {
 		if (Runner::stopping or (no_update and not current_mem.percent.at("used").empty())) return current_mem;
 		
 		auto& show_swap = Config::getB("show_page");
-		auto& swap_disk = Config::getB("page_disk");
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
 
@@ -1169,213 +1169,141 @@ namespace Mem {
 		else
 			has_swap = false;
 
-	//	//? Get disks stats
-	//	if (show_disks) {
-	//		double uptime = system_uptime();
-	//		auto free_priv = Config::getB("disk_free_priv");
-	//		try {
-	//			auto& disks_filter = Config::getS("disks_filter");
-	//			bool filter_exclude = false;
-	//			auto& use_fstab = Config::getB("use_fstab");
-	//			auto& only_physical = Config::getB("only_physical");
-	//			auto& disks = mem.disks;
-	//			ifstream diskread;
+		//? Get disks stats
+		if (show_disks) {
+			uint64_t systime = GetTickCount64();
+			auto free_priv = Config::getB("disk_free_priv");
+			auto& disks_filter = Config::getS("disks_filter");
+			bool filter_exclude = false;
+			auto& only_physical = Config::getB("only_physical");
+			auto& disks = mem.disks;
+			disk_ios = 0;
 
-	//			vector<string> filter;
-	//			if (not disks_filter.empty()) {
-	//				filter = ssplit(disks_filter);
-	//				if (filter.at(0).starts_with("exclude=")) {
-	//					filter_exclude = true;
-	//					filter.at(0) = filter.at(0).substr(8);
-	//				}
-	//			}
+			vector<string> filter;
+			if (not disks_filter.empty()) {
+				filter = ssplit(disks_filter);
+				if (filter.at(0).starts_with("exclude=")) {
+					filter_exclude = true;
+					filter.at(0) = filter.at(0).substr(8);
+				}
+			}
 
-	//			//? Get list of "real" filesystems from /proc/filesystems
-	//			vector<string> fstypes;
-	//			if (only_physical and not use_fstab) {
-	//				fstypes = {"zfs", "wslfs", "drvfs"};
-	//				diskread.open(Shared::procPath / "filesystems");
-	//				if (diskread.good()) {
-	//					for (string fstype; diskread >> fstype;) {
-	//						if (not is_in(fstype, "nodev", "squashfs", "nullfs"))
-	//							fstypes.push_back(fstype);
-	//						diskread.ignore(SSmax, '\n');
-	//					}
-	//				}
-	//				else
-	//					throw std::runtime_error("Failed to read /proc/filesystems");
-	//				diskread.close();
-	//			}
+			//? Get bitmask containing drives in use
+			DWORD logical_drives = GetLogicalDrives();
+			if (logical_drives == 0) return mem;
+			
+			vector<string> found;
+			found.reserve(last_found.size());			
+			for (int i = 0; i < 26; i++) {
+				if (not (logical_drives & (1 << i))) continue;
+				string letter = string(1, 'A' + i) + ":\\";
+				
+				//? Get device type and continue loop if unknown or failed
+				UINT device_type = GetDriveTypeA(letter.c_str());
+				if (device_type < 2) continue;
 
-	//			//? Get disk list to use from fstab if enabled
-	//			if (use_fstab and fs::last_write_time("/etc/fstab") != fstab_time) {
-	//				fstab.clear();
-	//				fstab_time = fs::last_write_time("/etc/fstab");
-	//				diskread.open("/etc/fstab");
-	//				if (diskread.good()) {
-	//					for (string instr; diskread >> instr;) {
-	//						if (not instr.starts_with('#')) {
-	//							diskread >> instr;
-	//							#ifdef SNAPPED
-	//								if (instr == "/") fstab.push_back("/mnt");
-	//								else if (not is_in(instr, "none", "swap")) fstab.push_back(instr);
-	//							#else
-	//								if (not is_in(instr, "none", "swap")) fstab.push_back(instr);
-	//							#endif
-	//						}
-	//						diskread.ignore(SSmax, '\n');
-	//					}
-	//				}
-	//				else
-	//					throw std::runtime_error("Failed to read /etc/fstab");
-	//				diskread.close();
-	//			}
+				//? Get name of drive
+				array<char, MAX_PATH + 1> ch_name;
+				GetVolumeInformationA(letter.c_str(), ch_name.data(), MAX_PATH + 1, 0, 0, 0, nullptr, 0);
+				string name(ch_name.data());
+				
+				//? Match filter if not empty
+				if (not filter.empty()) {
+					bool match = v_contains(filter, letter) or (not name.empty() and v_contains(filter, name));
+					if ((filter_exclude and match) or (not filter_exclude and not match))
+						continue;
+				}
 
-	//			//? Get mounts from /etc/mtab or /proc/self/mounts
-	//			diskread.open((fs::exists("/etc/mtab") ? fs::path("/etc/mtab") : Shared::procPath / "self/mounts"));
-	//			if (diskread.good()) {
-	//				vector<string> found;
-	//				found.reserve(last_found.size());
-	//				string dev, mountpoint, fstype;
-	//				while (not diskread.eof()) {
-	//					std::error_code ec;
-	//					diskread >> dev >> mountpoint >> fstype;
-	//					diskread.ignore(SSmax, '\n');
+				if (not only_physical or (only_physical and (device_type == DRIVE_FIXED or device_type == DRIVE_REMOVABLE))) {
+					found.push_back(letter);
 
-	//					if (v_contains(found, mountpoint)) continue;
+					if (not disks.contains(letter))
+						disks[letter] = { name };
+					else
+						disks.at(letter).name = name;
 
-	//					//? Match filter if not empty
-	//					if (not filter.empty()) {
-	//						bool match = v_contains(filter, mountpoint);
-	//						if ((filter_exclude and match) or (not filter_exclude and not match))
-	//							continue;
-	//					}
+					auto& disk = disks.at(letter);
 
-	//					if ((not use_fstab and not only_physical)
-	//					or (use_fstab and v_contains(fstab, mountpoint))
-	//					or (not use_fstab and only_physical and v_contains(fstypes, fstype))) {
-	//						found.push_back(mountpoint);
-	//						if (not v_contains(last_found, mountpoint)) redraw = true;
+					//? Get disk total size, free and used
+					ULARGE_INTEGER freeBytesCaller, totalBytes, freeBytes;
+					if (GetDiskFreeSpaceExA(letter.c_str(), &freeBytesCaller, &totalBytes, &freeBytes)) {
+						disk.total = totalBytes.QuadPart;
+						disk.free = (free_priv ? freeBytes.QuadPart : freeBytesCaller.QuadPart);
+						disk.used = disk.total - disk.free;
+						disk.used_percent = round((double)disk.used * 100 / disk.total);
+						disk.free_percent = 100 - disk.used_percent;
+					}
 
-	//						//? Save mountpoint, name, dev path and path to /sys/block stat file
-	//						if (not disks.contains(mountpoint)) {
-	//							disks[mountpoint] = disk_info{fs::canonical(dev, ec), fs::path(mountpoint).filename()};
-	//							if (disks.at(mountpoint).dev.empty()) disks.at(mountpoint).dev = dev;
-	//							#ifdef SNAPPED
-	//								if (mountpoint == "/mnt") disks.at(mountpoint).name = "root";
-	//							#endif
-	//							if (disks.at(mountpoint).name.empty()) disks.at(mountpoint).name = (mountpoint == "/" ? "root" : mountpoint);
-	//							string devname = disks.at(mountpoint).dev.filename();
-	//							while (devname.size() >= 2) {
-	//								if (fs::exists("/sys/block/" + devname + "/stat", ec) and access(string("/sys/block/" + devname + "/stat").c_str(), R_OK) == 0) {
-	//									disks.at(mountpoint).stat = "/sys/block/" + devname + "/stat";
-	//									break;
-	//								}
-	//								devname.resize(devname.size() - 1);
-	//							}
-	//						}
+					//? Get disk IO
+					//! Based on the method used in psutil
+					//! see https://github.com/giampaolo/psutil/blob/b135380591a4c9616c9f1d54fbfa93c8f2ee4228/psutil/arch/windows/disk.c#L83
+					HandleWrapper dHandle(CreateFileW(_bstr_t(string("\\\\.\\" + letter.substr(0, 2)).c_str()), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
+					if (dHandle.valid) {
+						DISK_PERFORMANCE diskperf;
+						DWORD retSize = 0;
+						DWORD getSize = sizeof(diskperf);
+						BOOL status;
+						for (int bx = 1; bx < 1024; bx++) {
+							status = DeviceIoControl(dHandle(), IOCTL_DISK_PERFORMANCE, nullptr, 0, &diskperf, getSize, &retSize, nullptr);
+							
+							//* DeviceIoControl success
+							if (status != 0) {
+								disk_ios++;
+								
+								//? Read
+								if (disk.io_read.empty())
+									disk.io_read.push_back(0);
+								else
+									disk.io_read.push_back(max((int64_t)0, (diskperf.BytesRead.QuadPart - disk.old_io.at(0))));
+								disk.old_io.at(0) = diskperf.BytesRead.QuadPart;
+								while (cmp_greater(disk.io_read.size(), width * 2)) disk.io_read.pop_front();
 
-	//					}
-	//				}
-	//				//? Remove disks no longer mounted or filtered out
-	//				if (swap_disk and has_swap) found.push_back("swap");
-	//				for (auto it = disks.begin(); it != disks.end();) {
-	//					if (not v_contains(found, it->first))
-	//						it = disks.erase(it);
-	//					else
-	//						it++;
-	//				}
-	//				if (found.size() != last_found.size()) redraw = true;
-	//				last_found = std::move(found);
-	//			}
-	//			else
-	//				throw std::runtime_error("Failed to get mounts from /etc/mtab and /proc/self/mounts");
-	//			diskread.close();
+								//? Write
+								if (disk.io_write.empty())
+									disk.io_write.push_back(0);
+								else
+									disk.io_write.push_back(max((int64_t)0, (diskperf.BytesWritten.QuadPart - disk.old_io.at(1))));
+								disk.old_io.at(1) = diskperf.BytesWritten.QuadPart;
+								while (cmp_greater(disk.io_write.size(), width * 2)) disk.io_write.pop_front();
 
-	//			//? Get disk/partition stats
-	//			for (auto& [mountpoint, disk] : disks) {
-	//				if (std::error_code ec; not fs::exists(mountpoint, ec)) continue;
-	//				struct statvfs64 vfs;
-	//				if (statvfs64(mountpoint.c_str(), &vfs) < 0) {
-	//					Logger::warning("Failed to get disk/partition stats with statvfs() for: " + mountpoint);
-	//					continue;
-	//				}
-	//				disk.total = vfs.f_blocks * vfs.f_frsize;
-	//				disk.free = (free_priv ? vfs.f_bfree : vfs.f_bavail) * vfs.f_frsize;
-	//				disk.used = disk.total - disk.free;
-	//				disk.used_percent = round((double)disk.used * 100 / disk.total);
-	//				disk.free_percent = 100 - disk.used_percent;
-	//			}
+								//? IO%
+								int64_t io_time = diskperf.ReadTime.QuadPart + diskperf.WriteTime.QuadPart;
+								if (disk.io_activity.empty())
+									disk.io_activity.push_back(0);
+								else
+									disk.io_activity.push_back(clamp((long)round((double)(io_time - disk.old_io.at(2)) / 1000 / (systime - old_systime)), 0l, 100l));
+								disk.old_io.at(2) = io_time;
+								while (cmp_greater(disk.io_activity.size(), width * 2)) disk.io_activity.pop_front();
+							}
+							
+							//! DeviceIoControl fail
+							else if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+								getSize *= 2;
+								continue;
+							}
+							break;
+						}
+					}
+				}
+			}
+			old_systime = systime;
 
-	//			//? Setup disks order in UI and add swap if enabled
-	//			mem.disks_order.clear();
-	//			#ifdef SNAPPED
-	//				if (disks.contains("/mnt")) mem.disks_order.push_back("/mnt");
-	//			#else
-	//				if (disks.contains("/")) mem.disks_order.push_back("/");
-	//			#endif
-	//			if (swap_disk and has_swap) {
-	//				mem.disks_order.push_back("swap");
-	//				if (not disks.contains("swap")) disks["swap"] = {"", "swap"};
-	//				disks.at("swap").total = mem.stats.at("swap_total");
-	//				disks.at("swap").used = mem.stats.at("swap_used");
-	//				disks.at("swap").free = mem.stats.at("swap_free");
-	//				disks.at("swap").used_percent = mem.percent.at("swap_used").back();
-	//				disks.at("swap").free_percent = mem.percent.at("swap_free").back();
-	//			}
-	//			for (const auto& name : last_found)
-	//				#ifdef SNAPPED
-	//					if (not is_in(name, "/mnt", "swap")) mem.disks_order.push_back(name);
-	//				#else
-	//					if (not is_in(name, "/", "swap")) mem.disks_order.push_back(name);
-	//				#endif
+			//? Remove disks no longer mounted or filtered out
+			for (auto it = disks.begin(); it != disks.end();) {
+				if (not v_contains(found, it->first)) {
+					it = disks.erase(it);
+					redraw = true;
+				}
+				else {
+					it++;
+				}
+			}
 
-	//			//? Get disks IO
-	//			int64_t sectors_read, sectors_write, io_ticks;
-	//			disk_ios = 0;
-	//			for (auto& [ignored, disk] : disks) {
-	//				if (disk.stat.empty() or access(disk.stat.c_str(), R_OK) != 0) continue;
-	//				diskread.open(disk.stat);
-	//				if (diskread.good()) {
-	//					disk_ios++;
-	//					for (int i = 0; i < 2; i++) { diskread >> std::ws; diskread.ignore(SSmax, ' '); }
-	//					diskread >> sectors_read;
-	//					if (disk.io_read.empty())
-	//						disk.io_read.push_back(0);
-	//					else
-	//						disk.io_read.push_back(max((int64_t)0, (sectors_read - disk.old_io.at(0)) * 512));
-	//					disk.old_io.at(0) = sectors_read;
-	//					while (cmp_greater(disk.io_read.size(), width * 2)) disk.io_read.pop_front();
+			if (found.size() != last_found.size()) redraw = true;
+			mem.disks_order.swap(found);
+		}
 
-	//					for (int i = 0; i < 3; i++) { diskread >> std::ws; diskread.ignore(SSmax, ' '); }
-	//					diskread >> sectors_write;
-	//					if (disk.io_write.empty())
-	//						disk.io_write.push_back(0);
-	//					else
-	//						disk.io_write.push_back(max((int64_t)0, (sectors_write - disk.old_io.at(1)) * 512));
-	//					disk.old_io.at(1) = sectors_write;
-	//					while (cmp_greater(disk.io_write.size(), width * 2)) disk.io_write.pop_front();
-
-	//					for (int i = 0; i < 2; i++) { diskread >> std::ws; diskread.ignore(SSmax, ' '); }
-	//					diskread >> io_ticks;
-	//					if (disk.io_activity.empty())
-	//						disk.io_activity.push_back(0);
-	//					else
-	//						disk.io_activity.push_back(clamp((long)round((double)(io_ticks - disk.old_io.at(2)) / (uptime - old_uptime) / 10), 0l, 100l));
-	//					disk.old_io.at(2) = io_ticks;
-	//					while (cmp_greater(disk.io_activity.size(), width * 2)) disk.io_activity.pop_front();
-	//				}
-	//				diskread.close();
-	//			}
-	//			old_uptime = uptime;
-	//		}
-	//		catch (const std::exception& e) {
-	//			Logger::warning("Error in Mem::collect() : " + (string)e.what());
-	//		}
-	//	}
-
-	//	return mem;
-	return current_mem;
+	return mem;
 	}
 
 }
