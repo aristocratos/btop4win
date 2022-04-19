@@ -24,6 +24,7 @@ tab-size = 4
 #include <chrono>
 #include <locale>
 #include <codecvt>
+#include <semaphore>
 
 #define _WIN32_DCOM
 #define _WIN32_WINNT 0x0600
@@ -46,6 +47,10 @@ tab-size = 4
 #include <Wbemidl.h>
 #pragma comment(lib, "wbemuuid.lib")
 #include <winioctl.h>
+#include <WS2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
+#include <iphlpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
 
 #define LODWORD(_qw)    ((DWORD)(_qw))
 #define HIDWORD(_qw)    ((DWORD)(((_qw) >> 32) & 0xffffffff))
@@ -125,8 +130,6 @@ namespace Tools {
 }
 
 namespace Shared {
-
-	IWbemLocator* WbemLocator;
 	IWbemServices* WbemServices;
 
 	void WMI_init() {
@@ -134,10 +137,12 @@ namespace Shared {
 			throw std::runtime_error("Shared::WMI_init() -> CoInitializeEx() failed with code: " + to_string(hr));
 		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoInitializeSecurity() failed with code: " + to_string(hr));
+		IWbemLocator* WbemLocator;
 		if (auto hr = CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID*)&WbemLocator); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoCreateInstance() failed with code: " + to_string(hr));
 		if (auto hr = WbemLocator->ConnectServer(_bstr_t(L"ROOT\\CIMV2"), NULL, NULL, NULL, 0, NULL, NULL, &WbemServices); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
+		WbemLocator->Release();
 		if (auto hr = CoSetProxyBlanket(WbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHN_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
 	}
@@ -212,12 +217,6 @@ namespace Cpu {
 	double load_avg_5m = 0.0;
 	double load_avg_15m = 0.0;
 
-	HQUERY hQuery;
-	HCOUNTER hCounter;
-	HANDLE eventh;
-	HANDLE waitHandle;
-	DWORD sample_i = 5;
-
 	void CALLBACK LoadAvgCallback(PVOID hCounter, BOOLEAN timedOut) {
 		PDH_FMT_COUNTERVALUE displayValue;
 		double currentLoad;
@@ -233,23 +232,27 @@ namespace Cpu {
 	}
 
 	void loadAVG_init() {
+		HQUERY hQuery;
 		if (PdhOpenQueryW(nullptr, 0, &hQuery) != ERROR_SUCCESS) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> PdhOpenQueryW failed");
 		}
 
+		HCOUNTER hCounter;
 		if (PdhAddEnglishCounterW(hQuery, L"\\System\\Processor Queue Length", 0, &hCounter) != ERROR_SUCCESS) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> PdhAddEnglishCounterW failed");
 		}
-
-		eventh = CreateEventW(NULL, FALSE, FALSE, L"LoadUpdateEvent");
+		
+		HANDLE eventh = CreateEventW(NULL, FALSE, FALSE, L"LoadUpdateEvent");
 		if (eventh == NULL) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> CreateEventW failed");
 		}
 
-		if (PdhCollectQueryDataEx(hQuery, sample_i, eventh) != ERROR_SUCCESS) {
+		
+		if (PdhCollectQueryDataEx(hQuery, 5, eventh) != ERROR_SUCCESS) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> PdhCollectQueryDataEx failed");
 		}
 
+		HANDLE waitHandle;
 		if (RegisterWaitForSingleObject(&waitHandle, eventh, (WAITORTIMERCALLBACK)LoadAvgCallback, (PVOID)hCounter, INFINITE, WT_EXECUTEDEFAULT) == 0) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> RegisterWaitForSingleObject failed");
 		}
@@ -285,7 +288,7 @@ namespace Proc {
 		_bstr_t State;
 	};
 
-	struct WMIProcQuerys{
+	const struct WMIProcQuerys{
 		_bstr_t WQL = L"WQL";
 		_bstr_t SELECT = L"SELECT * FROM Win32_Process";
 		_bstr_t SELECTSvc = L"SELECT * FROM Win32_Service";
@@ -303,7 +306,7 @@ namespace Proc {
 		_bstr_t ParentProcessId = L"ParentProcessId";
 	};
 
-	struct WMISvcQuerys {
+	const struct WMISvcQuerys {
 		_bstr_t WQL = L"WQL";
 		_bstr_t SELECT = L"SELECT * FROM Win32_Service";
 		_bstr_t ProcessID = L"ProcessID";
@@ -318,7 +321,12 @@ namespace Proc {
 
 	};
 
+	std::binary_semaphore do_work(0);
+	inline bool WMI_wait() { return do_work.try_acquire_for(std::chrono::milliseconds(100)); }
+	inline void WMI_trigger() { do_work.release(); }
+	atomic<bool> WMI_running = false;
 	atomic<uint64_t> WMItimer = 0;
+	vector<size_t> WMI_requests;
 	robin_hood::unordered_flat_map<size_t, WMIEntry> WMIList;
 	robin_hood::unordered_flat_map<string, WMISvcEntry> WMISvcList;
 	std::mutex WMImutex;
@@ -327,14 +335,22 @@ namespace Proc {
 	void WMICollect() {
 		WMIProcQuerys QProc{};
 		WMISvcQuerys QSvc{};
+		int counter = 0;
 		while (not Global::quitting) {
+			if (not WMI_wait() and not (Config::getB("proc_services") and counter++ >= 50)) continue;
+			counter = 0;
+			vector<size_t> requests;
+			atomic_wait(Runner::active);
+			atomic_lock lck(WMI_running);
+			requests.swap(WMI_requests);
 			auto timeStart = time_micros();
 
 			//* Processes
 			{
 				Shared::WbemEnumerator WMI;
-				robin_hood::unordered_flat_map<size_t, WMIEntry> newWMIList;
+				robin_hood::unordered_flat_map<size_t, WMIEntry> newWMIList = WMIList;
 				auto& Q = QProc;
+				vector<size_t> found;
 
 				if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
 					throw std::runtime_error("Proc::WMICollect() (Processes) [thread] -> WbemServices query failed with code: " + to_string(hr));
@@ -347,71 +363,79 @@ namespace Proc {
 					Shared::WMIObjectReleaser rls(result);
 					if (retCount == 0) break;
 					size_t pid = 0;
-					{
-						Shared::VariantWrap ProcessId{};
-						if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
-						pid = ProcessId()->uintVal;
-					}
-					if (pid == 0) continue;
+					bool new_entry = false;
+					
+					Shared::VariantWrap ProcessId{};
+					if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) != S_OK) continue;
+					pid = ProcessId()->uintVal;
+					
+					found.push_back(pid);
+					if (pid == 0 or (not requests.empty() and not v_contains(requests, pid))) continue;
 
-					newWMIList[pid] = {};
+					if (not newWMIList.contains(pid)) {
+						newWMIList[pid] = {};
+						new_entry = true;
+					}
 					auto& entry = newWMIList.at(pid);
-					{
+					
+					Shared::VariantWrap ReadTransferCount{};
+					if (result->Get(Q.ReadTransferCount, 0, &ReadTransferCount.val, 0, 0) == S_OK)
+						entry.ReadTransferCount = ReadTransferCount()->bstrVal;
+					
+					Shared::VariantWrap WriteTransferCount{};
+					if (result->Get(Q.WriteTransferCount, 0, &WriteTransferCount.val, 0, 0) == S_OK)
+						entry.WriteTransferCount = WriteTransferCount()->bstrVal;
+
+					Shared::VariantWrap PrivateMemory{};
+					if (result->Get(Q.PrivateMemory, 0, &PrivateMemory.val, 0, 0) == S_OK)
+						entry.PrivateMemory = PrivateMemory()->bstrVal;
+					
+					Shared::VariantWrap KernelModeTime{};
+					if (result->Get(Q.KernelModeTime, 0, &KernelModeTime.val, 0, 0) == S_OK)
+						entry.KernelModeTime = KernelModeTime()->bstrVal;
+					
+					Shared::VariantWrap UserModeTime{};
+					if (result->Get(Q.UserModeTime, 0, &UserModeTime.val, 0, 0) == S_OK)
+						entry.UserModeTime = UserModeTime()->bstrVal;
+					
+					Shared::VariantWrap ThreadCount{};
+					if (result->Get(Q.ThreadCount, 0, &ThreadCount.val, 0, 0) == S_OK)
+						entry.ThreadCount = ThreadCount()->uintVal;
+					
+					
+					if (new_entry) {
 						Shared::VariantWrap ParentProcessId{};
 						if (result->Get(Q.ParentProcessId, 0, &ParentProcessId.val, 0, 0) == S_OK)
 							entry.ParentProcessId = ParentProcessId()->uintVal;
-					}
-					{
+					
 						Shared::VariantWrap Name{};
 						if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
 							entry.Name = Name()->bstrVal;
-					}
-					{
+					
 						Shared::VariantWrap CommandLine{};
 						if (result->Get(Q.CommandLine, 0, &CommandLine.val, 0, 0) == S_OK)
 							entry.CommandLine = CommandLine()->bstrVal;
-					}
-					{
+					
 						Shared::VariantWrap ExecutablePath{};
 						if (result->Get(Q.ExecutablePath, 0, &ExecutablePath.val, 0, 0) == S_OK)
 							entry.ExecutablePath = ExecutablePath()->bstrVal;
-					}
-					{
-						Shared::VariantWrap KernelModeTime{};
-						if (result->Get(Q.KernelModeTime, 0, &KernelModeTime.val, 0, 0) == S_OK)
-							entry.KernelModeTime = KernelModeTime()->bstrVal;
-					}
-					{
-						Shared::VariantWrap UserModeTime{};
-						if (result->Get(Q.UserModeTime, 0, &UserModeTime.val, 0, 0) == S_OK)
-							entry.UserModeTime = UserModeTime()->bstrVal;
-					}
-					{
+
 						Shared::VariantWrap CreationDate{};
 						if (result->Get(Q.CreationDate, 0, &CreationDate.val, 0, 0) == S_OK)
 							entry.CreationDate = CreationDate()->bstrVal;
 					}
-					{
-						Shared::VariantWrap ThreadCount{};
-						if (result->Get(Q.ThreadCount, 0, &ThreadCount.val, 0, 0) == S_OK)
-							entry.ThreadCount = ThreadCount()->uintVal;
-					}
-					{
-						Shared::VariantWrap PrivateMemory{};
-						if (result->Get(Q.PrivateMemory, 0, &PrivateMemory.val, 0, 0) == S_OK)
-							entry.PrivateMemory = PrivateMemory()->bstrVal;
-					}
-					{
-						Shared::VariantWrap ReadTransferCount{};
-						if (result->Get(Q.ReadTransferCount, 0, &ReadTransferCount.val, 0, 0) == S_OK)
-							entry.ReadTransferCount = ReadTransferCount()->bstrVal;
-					}
-					{
-						Shared::VariantWrap WriteTransferCount{};
-						if (result->Get(Q.WriteTransferCount, 0, &WriteTransferCount.val, 0, 0) == S_OK)
-							entry.WriteTransferCount = WriteTransferCount()->bstrVal;
-					}
+
+
 				}
+
+				//? Clear dead processes from list
+				for (auto it = newWMIList.begin(); it != newWMIList.end();) {
+					if (not v_contains(found, it->first))
+						it = newWMIList.erase(it);
+					else
+						it++;
+				}
+
 				const std::lock_guard<std::mutex> lck(Proc::WMImutex);
 				Proc::WMIList.swap(newWMIList);
 			}
@@ -419,8 +443,9 @@ namespace Proc {
 			//* Services
 			if (Config::getB("proc_services") or WMISvcList.empty()) {
 				Shared::WbemEnumerator WMI;
-				robin_hood::unordered_flat_map<string, WMISvcEntry> newWMISvcList;
+				robin_hood::unordered_flat_map<string, WMISvcEntry> newWMISvcList = WMISvcList;
 				auto& Q = QSvc;
+				vector<string> found;
 
 				if (auto hr = Shared::WbemServices->ExecQuery(Q.WQL, Q.SELECT, WBEM_RETURN_WHEN_COMPLETE, 0, &WMI.WbEnum); FAILED(hr) or WMI() == nullptr) {
 					throw std::runtime_error("Proc::WMICollect() (Services) [thread] -> WbemServices query failed with code: " + to_string(hr));
@@ -433,68 +458,75 @@ namespace Proc {
 					Shared::WMIObjectReleaser rls(result);
 					if (retCount == 0) break;
 					string name;
-					{
-						Shared::VariantWrap Name{};
-						if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
-							name = bstr2str(Name()->bstrVal);
-					}
+					bool new_entry = false;
+					
+					Shared::VariantWrap Name{};
+					if (result->Get(Q.Name, 0, &Name.val, 0, 0) == S_OK)
+						name = bstr2str(Name()->bstrVal);
+					
 					if (name.empty()) continue;
-					newWMISvcList[name] = {};
-					auto& entry = newWMISvcList.at(name);
-					{
-						Shared::VariantWrap ProcessId{};
-						if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) == S_OK)
-							entry.ProcessID = ProcessId()->uintVal;
+					found.push_back(name);
+					if (not newWMISvcList.contains(name)) {
+						newWMISvcList[name] = {};
+						new_entry = true;
 					}
-					{
+					auto& entry = newWMISvcList.at(name);
+					
+					Shared::VariantWrap ProcessId{};
+					if (result->Get(Q.ProcessID, 0, &ProcessId.val, 0, 0) == S_OK)
+						entry.ProcessID = ProcessId()->uintVal;
+					
+					Shared::VariantWrap StartMode{};
+					if (result->Get(Q.StartMode, 0, &StartMode.val, 0, 0) == S_OK)
+						entry.StartMode = StartMode()->bstrVal;
+					
+					Shared::VariantWrap AcceptPause{};
+					if (result->Get(Q.AcceptPause, 0, &AcceptPause.val, 0, 0) == S_OK)
+						entry.AcceptPause = (AcceptPause()->boolVal == VARIANT_TRUE);
+					
+					Shared::VariantWrap AcceptStop{};
+					if (result->Get(Q.AcceptStop, 0, &AcceptStop.val, 0, 0) == S_OK)
+						entry.AcceptStop = (AcceptStop()->boolVal == VARIANT_TRUE);
+					
+					Shared::VariantWrap Owner{};
+					if (result->Get(Q.Owner, 0, &Owner.val, 0, 0) == S_OK)
+						entry.Owner = Owner()->bstrVal;
+					
+					Shared::VariantWrap State{};
+					if (result->Get(Q.State, 0, &State.val, 0, 0) == S_OK)
+						entry.State = State()->bstrVal;
+					
+					if (new_entry) {
 						Shared::VariantWrap Caption{};
 						if (result->Get(Q.Caption, 0, &Caption.val, 0, 0) == S_OK)
 							entry.Caption = Caption()->bstrVal;
-					}
-					{
-						Shared::VariantWrap AcceptPause{};
-						if (result->Get(Q.AcceptPause, 0, &AcceptPause.val, 0, 0) == S_OK)
-							entry.AcceptPause = (AcceptPause()->boolVal == VARIANT_TRUE);
-					}
-					{
-						Shared::VariantWrap AcceptStop{};
-						if (result->Get(Q.AcceptStop, 0, &AcceptStop.val, 0, 0) == S_OK)
-							entry.AcceptStop = (AcceptStop()->boolVal == VARIANT_TRUE);
-					}
-					{
+					
 						Shared::VariantWrap Description{};
 						if (result->Get(Q.Description, 0, &Description.val, 0, 0) == S_OK)
 							entry.Description = Description()->bstrVal;
 					}
-					{
-						Shared::VariantWrap StartMode{};
-						if (result->Get(Q.StartMode, 0, &StartMode.val, 0, 0) == S_OK)
-							entry.StartMode = StartMode()->bstrVal;
-					}
-					{
-						Shared::VariantWrap Owner{};
-						if (result->Get(Q.Owner, 0, &Owner.val, 0, 0) == S_OK)
-							entry.Owner = Owner()->bstrVal;
-					}
-					{
-						Shared::VariantWrap State{};
-						if (result->Get(Q.State, 0, &State.val, 0, 0) == S_OK)
-							entry.State = State()->bstrVal;
-					}
-					//Logger::debug(to_string(pid) + " | " + bstr2str(entry.Name) + " | " + bstr2str(entry.Caption) + " | " + bstr2str(entry.Description)
-					//	+ " | " + bstr2str(entry.ServiceType) + " | " + bstr2str(entry.StartMode) + " | " + bstr2str(entry.Owner) + " | " + bstr2str(entry.State));
-					//exit(0);
+					
+
 				}
+				
+				//? Clear missing services from list
+				for (auto it = newWMISvcList.begin(); it != newWMISvcList.end();) {
+					if (not v_contains(found, it->first))
+						it = newWMISvcList.erase(it);
+					else
+						it++;
+				}
+				
 				const std::lock_guard<std::mutex> lck(Proc::WMImutex);
 				Proc::WMISvcList.swap(newWMISvcList);
 			}
 
-			auto timeDone = time_micros();
-			Proc::WMItimer = timeDone - timeStart;
+			//auto timeDone = time_micros();
+			Proc::WMItimer = time_micros() - timeStart;
 
-			auto timeNext = timeStart + 1'000'000;
+			/*auto timeNext = timeStart + 1'000'000;
 			if (auto timeNow = time_micros(); timeNext > timeNow) 
-				sleep_micros(timeNext - timeNow);
+				sleep_micros(timeNext - timeNow);*/
 		}
 	}
 }
@@ -567,6 +599,7 @@ namespace Shared {
 
 		//? Start up WMI system info collector in background
 		std::thread(Proc::WMICollect).detach();
+		Proc::WMI_trigger();
 
 	}
 
@@ -1236,7 +1269,7 @@ namespace Mem {
 
 					//? Get disk IO
 					//! Based on the method used in psutil
-					//! see https://github.com/giampaolo/psutil/blob/b135380591a4c9616c9f1d54fbfa93c8f2ee4228/psutil/arch/windows/disk.c#L83
+					//! see https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/disk.c
 					HandleWrapper dHandle(CreateFileW(_bstr_t(string("\\\\.\\" + letter.substr(0, 2)).c_str()), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
 					if (dHandle.valid) {
 						DISK_PERFORMANCE diskperf;
@@ -1312,6 +1345,7 @@ namespace Net {
 	unordered_flat_map<string, net_info> current_net;
 	net_info empty_net = {};
 	vector<string> interfaces;
+	vector<string> failed;
 	string selected_iface;
 	int errors = 0;
 	unordered_flat_map<string, uint64_t> graph_max = { {"download", {}}, {"upload", {}} };
@@ -1322,172 +1356,179 @@ namespace Net {
 	auto collect(const bool no_update) -> net_info& {
 		auto& net = current_net;
 
-		return empty_net;
+		auto& config_iface = Config::getS("net_iface");
+		auto& net_sync = Config::getB("net_sync");
+		auto& net_auto = Config::getB("net_auto");
+		auto new_timestamp = time_ms();
 
-	//	auto& config_iface = Config::getS("net_iface");
-	//	auto& net_sync = Config::getB("net_sync");
-	//	auto& net_auto = Config::getB("net_auto");
-	//	auto new_timestamp = time_ms();
+		//! Much of the following code is based on the implementation used in psutil
+		//! See: https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/net.c
+		if (not no_update) {
+			//? Get list of adapters
+			ULONG bufSize = 0;
+			if (GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, nullptr, &bufSize) != ERROR_BUFFER_OVERFLOW) {
+				throw std::runtime_error("Net::collect() -> GetAdaptersAddresses() failed to get buffer size!");
+			}
+		
+			auto adapters = std::unique_ptr<IP_ADAPTER_ADDRESSES, decltype(std::free)*>{reinterpret_cast<IP_ADAPTER_ADDRESSES*>(std::malloc(bufSize)), std::free};
+			if (GetAdaptersAddresses(AF_UNSPEC, 0, nullptr, adapters.get(), &bufSize)) {
+				throw std::runtime_error("Net::collect() -> GetAdaptersAddresses() failed to get adapter list!");
+			}
 
-	//	if (not no_update and errors < 3) {
-	//		//? Get interface list using getifaddrs() wrapper
-	//		getifaddr_wrapper if_wrap {};
-	//		if (if_wrap.status != 0) {
-	//			errors++;
-	//			Logger::error("Net::collect() -> getifaddrs() failed with id " + to_string(if_wrap.status));
-	//			redraw = true;
-	//			return empty_net;
-	//		}
-	//		int family = 0;
-	//		char ip[NI_MAXHOST];
-	//		interfaces.clear();
-	//		string ipv4, ipv6;
+			interfaces.clear();
 
-	//		//? Iteration over all items in getifaddrs() list
-	//		for (auto* ifa = if_wrap(); ifa != NULL; ifa = ifa->ifa_next) {
-	//			if (ifa->ifa_addr == NULL) continue;
-	//			family = ifa->ifa_addr->sa_family;
-	//			const auto& iface = ifa->ifa_name;
+			//? Iterate through list of adapters
+			for (auto a = adapters.get(); a != nullptr; a = a->Next) {
+				string iface = bstr2str(a->FriendlyName);
+				interfaces.push_back(iface);
+				net[iface].connected = (a->OperStatus == IfOperStatusUp);
+			
+				//? Get IP adresses associated with adapter
+				bool ip4 = false, ip6 = false;
+				for (auto u = a->FirstUnicastAddress; u != nullptr and not ip4; u = u->Next) {
+					auto family = u->Address.lpSockaddr->sa_family;
+					if (family == AF_INET and not ip4) {
+						auto sa_in = reinterpret_cast<sockaddr_in*>(u->Address.lpSockaddr);
+						array<char, 256> ipAddress;
+						if (inet_ntop(AF_INET, &sa_in->sin_addr, ipAddress.data(), 256) == NULL)
+							continue;
+						net[iface].ipv4 = string(ipAddress.data());
+						ip4 = not net[iface].ipv4.empty();
+					}
+					else if (family == AF_INET6 and not ip6) {
+						auto sa_in = reinterpret_cast<sockaddr_in6*>(u->Address.lpSockaddr);
+						array<char, 256> ipAddress;
+						if (inet_ntop(AF_INET6, &sa_in->sin6_addr, ipAddress.data(), 256) == NULL)
+							continue;
+						net[iface].ipv6 = string(ipAddress.data());
+						ip6 = not net[iface].ipv6.empty();
+					}
+					else
+						continue;
+				}
 
-	//			//? Get IPv4 address
-	//			if (family == AF_INET) {
-	//				if (getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in), ip, NI_MAXHOST, NULL, 0, NI_NUMERICHOST) == 0)
-	//					net[iface].ipv4 = ip;
-	//			}
-	//			//? Get IPv6 address
-	//			else if (family == AF_INET6) {
-	//				if (getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in6), ip, NI_MAXHOST, NULL, 0, NI_NUMERICHOST) == 0)
-	//					net[iface].ipv6 = ip;
-	//			}
+				//? Get IO stats for adapter
+				MIB_IF_ROW2 ifEntry;
+				SecureZeroMemory((PVOID)&ifEntry, sizeof(MIB_IF_ROW2));
+				ifEntry.InterfaceIndex = a->IfIndex;
+				if (GetIfEntry2(&ifEntry) != NO_ERROR) {
+					if (not v_contains(failed, iface)) {
+						failed.push_back(iface);
+						Logger::debug("Failed to get IO stats for network adapter: " + iface);
+					}
+					continue;
+				}
 
-	//			//? Update available interfaces vector and get status of interface
-	//			if (not v_contains(interfaces, iface)) {
-	//				interfaces.push_back(iface);
-	//				net[iface].connected = (ifa->ifa_flags & IFF_RUNNING);
-	//			}
-	//		}
+				for (const string dir : {"download", "upload"}) {
+					auto& saved_stat = net.at(iface).stat.at(dir);
+					auto& bandwidth = net.at(iface).bandwidth.at(dir);
 
-	//		//? Get total recieved and transmitted bytes + device address if no ip was found
-	//		for (const auto& iface : interfaces) {
-	//			if (net.at(iface).ipv4.empty() and net.at(iface).ipv6.empty())
-	//				net.at(iface).ipv4 = readfile("/sys/class/net/" + iface + "/address");
+					uint64_t val = (dir == "download" ? ifEntry.InOctets : ifEntry.OutOctets);
 
-	//			for (const string dir : {"download", "upload"}) {
-	//				const fs::path sys_file = "/sys/class/net/" + iface + "/statistics/" + (dir == "download" ? "rx_bytes" : "tx_bytes");
-	//				auto& saved_stat = net.at(iface).stat.at(dir);
-	//				auto& bandwidth = net.at(iface).bandwidth.at(dir);
+					//? Update speed, total and top values
+					if (val < saved_stat.last) {
+						saved_stat.rollover += saved_stat.last;
+						saved_stat.last = 0;
+					}
+					if (cmp_greater((unsigned long long)saved_stat.rollover + (unsigned long long)val, numeric_limits<uint64_t>::max())) {
+						saved_stat.rollover = 0;
+						saved_stat.last = 0;
+					}
+					saved_stat.speed = round((double)(val - saved_stat.last) / ((double)(new_timestamp - timestamp) / 1000));
+					if (saved_stat.speed > saved_stat.top) saved_stat.top = saved_stat.speed;
+					if (saved_stat.offset > val + saved_stat.rollover) saved_stat.offset = 0;
+					saved_stat.total = (val + saved_stat.rollover) - saved_stat.offset;
+					saved_stat.last = val;
 
-	//				uint64_t val = 0;
-	//				try { val = (uint64_t)stoull(readfile(sys_file, "0")); }
-	//				catch (const std::invalid_argument&) {}
-	//				catch (const std::out_of_range&) {}
+					//? Add values to graph
+					bandwidth.push_back(saved_stat.speed);
+					while (cmp_greater(bandwidth.size(), width * 2)) bandwidth.pop_front();
 
-	//				//? Update speed, total and top values
-	//				if (val < saved_stat.last) {
-	//					saved_stat.rollover += saved_stat.last;
-	//					saved_stat.last = 0;
-	//				}
-	//				if (cmp_greater((unsigned long long)saved_stat.rollover + (unsigned long long)val, numeric_limits<uint64_t>::max())) {
-	//					saved_stat.rollover = 0;
-	//					saved_stat.last = 0;
-	//				}
-	//				saved_stat.speed = round((double)(val - saved_stat.last) / ((double)(new_timestamp - timestamp) / 1000));
-	//				if (saved_stat.speed > saved_stat.top) saved_stat.top = saved_stat.speed;
-	//				if (saved_stat.offset > val + saved_stat.rollover) saved_stat.offset = 0;
-	//				saved_stat.total = (val + saved_stat.rollover) - saved_stat.offset;
-	//				saved_stat.last = val;
+					//? Set counters for auto scaling
+					if (net_auto and selected_iface == iface) {
+						if (saved_stat.speed > graph_max[dir]) {
+							++max_count[dir][0];
+							if (max_count[dir][1] > 0) --max_count[dir][1];
+						}
+						else if (graph_max[dir] > 10 << 10 and saved_stat.speed < graph_max[dir] / 10) {
+							++max_count[dir][1];
+							if (max_count[dir][0] > 0) --max_count[dir][0];
+						}
+					}
+				}
+			}
+			
+			timestamp = new_timestamp;
 
-	//				//? Add values to graph
-	//				bandwidth.push_back(saved_stat.speed);
-	//				while (cmp_greater(bandwidth.size(), width * 2)) bandwidth.pop_front();
+			//? Clean up net map if needed
+			if (net.size() > interfaces.size()) {
+				for (auto it = net.begin(); it != net.end();) {
+					if (not v_contains(interfaces, it->first))
+						it = net.erase(it);
+					else
+						it++;
+				}
+				net.compact();
+			}
+		}
 
-	//				//? Set counters for auto scaling
-	//				if (net_auto and selected_iface == iface) {
-	//					if (saved_stat.speed > graph_max[dir]) {
-	//						++max_count[dir][0];
-	//						if (max_count[dir][1] > 0) --max_count[dir][1];
-	//					}
-	//					else if (graph_max[dir] > 10 << 10 and saved_stat.speed < graph_max[dir] / 10) {
-	//						++max_count[dir][1];
-	//						if (max_count[dir][0] > 0) --max_count[dir][0];
-	//					}
+		//? Return empty net_info struct if no interfaces was found
+		if (net.empty())
+			return empty_net;
 
-	//				}
-	//			}
-	//		}
+		//? Find an interface to display if selected isn't set or valid
+		if (selected_iface.empty() or not v_contains(interfaces, selected_iface)) {
+			max_count["download"][0] = max_count["download"][1] = max_count["upload"][0] = max_count["upload"][1] = 0;
+			redraw = true;
+			if (net_auto) rescale = true;
+			if (not config_iface.empty() and v_contains(interfaces, config_iface)) selected_iface = config_iface;
+			else {
+				//? Sort interfaces by total upload + download bytes
+				auto sorted_interfaces = interfaces;
+				rng::sort(sorted_interfaces, [&](const auto& a, const auto& b){
+					return 	cmp_greater(net.at(a).stat["download"].total + net.at(a).stat["upload"].total,
+										net.at(b).stat["download"].total + net.at(b).stat["upload"].total);
+				});
+				//? Try to set to a connected interface
+				selected_iface.clear();
+				for (const auto& iface : sorted_interfaces) {
+					if (net.at(iface).connected) selected_iface = iface;
+					break;
+				}
+				//? If no interface is connected set to first available
+				if (selected_iface.empty() and not sorted_interfaces.empty()) selected_iface = sorted_interfaces.at(0);
+				else if (sorted_interfaces.empty()) return empty_net;
+			}
+		}
 
-	//		//? Clean up net map if needed
-	//		if (net.size() > interfaces.size()) {
-	//			for (auto it = net.begin(); it != net.end();) {
-	//				if (not v_contains(interfaces, it->first))
-	//					it = net.erase(it);
-	//				else
-	//					it++;
-	//			}
-	//			net.compact();
-	//		}
+		//? Calculate max scale for graphs if needed
+		if (net_auto) {
+			bool sync = false;
+			for (const auto& dir: {"download", "upload"}) {
+				for (const auto& sel : {0, 1}) {
+					if (rescale or max_count[dir][sel] >= 5) {
+						const uint64_t avg_speed = (net[selected_iface].bandwidth[dir].size() > 5
+							? std::accumulate(net.at(selected_iface).bandwidth.at(dir).rbegin(), net.at(selected_iface).bandwidth.at(dir).rbegin() + 5, 0) / 5
+							: net[selected_iface].stat[dir].speed);
+						graph_max[dir] = max(uint64_t(avg_speed * (sel == 0 ? 1.3 : 3.0)), (uint64_t)10 << 10);
+						max_count[dir][0] = max_count[dir][1] = 0;
+						redraw = true;
+						if (net_sync) sync = true;
+						break;
+					}
+				}
+				//? Sync download/upload graphs if enabled
+				if (sync) {
+					const auto other = (string(dir) == "upload" ? "download" : "upload");
+					graph_max[other] = graph_max[dir];
+					max_count[other][0] = max_count[other][1] = 0;
+					break;
+				}
+			}
+		}
 
-	//		timestamp = new_timestamp;
-	//	}
-
-	//	//? Return empty net_info struct if no interfaces was found
-	//	if (net.empty())
-	//		return empty_net;
-
-	//	//? Find an interface to display if selected isn't set or valid
-	//	if (selected_iface.empty() or not v_contains(interfaces, selected_iface)) {
-	//		max_count["download"][0] = max_count["download"][1] = max_count["upload"][0] = max_count["upload"][1] = 0;
-	//		redraw = true;
-	//		if (net_auto) rescale = true;
-	//		if (not config_iface.empty() and v_contains(interfaces, config_iface)) selected_iface = config_iface;
-	//		else {
-	//			//? Sort interfaces by total upload + download bytes
-	//			auto sorted_interfaces = interfaces;
-	//			rng::sort(sorted_interfaces, [&](const auto& a, const auto& b){
-	//				return 	cmp_greater(net.at(a).stat["download"].total + net.at(a).stat["upload"].total,
-	//									net.at(b).stat["download"].total + net.at(b).stat["upload"].total);
-	//			});
-	//			selected_iface.clear();
-	//			//? Try to set to a connected interface
-	//			for (const auto& iface : sorted_interfaces) {
-	//				if (net.at(iface).connected) selected_iface = iface;
-	//				break;
-	//			}
-	//			//? If no interface is connected set to first available
-	//			if (selected_iface.empty() and not sorted_interfaces.empty()) selected_iface = sorted_interfaces.at(0);
-	//			else if (sorted_interfaces.empty()) return empty_net;
-
-	//		}
-	//	}
-
-	//	//? Calculate max scale for graphs if needed
-	//	if (net_auto) {
-	//		bool sync = false;
-	//		for (const auto& dir: {"download", "upload"}) {
-	//			for (const auto& sel : {0, 1}) {
-	//				if (rescale or max_count[dir][sel] >= 5) {
-	//					const uint64_t avg_speed = (net[selected_iface].bandwidth[dir].size() > 5
-	//						? std::accumulate(net.at(selected_iface).bandwidth.at(dir).rbegin(), net.at(selected_iface).bandwidth.at(dir).rbegin() + 5, 0) / 5
-	//						: net[selected_iface].stat[dir].speed);
-	//					graph_max[dir] = max(uint64_t(avg_speed * (sel == 0 ? 1.3 : 3.0)), (uint64_t)10 << 10);
-	//					max_count[dir][0] = max_count[dir][1] = 0;
-	//					redraw = true;
-	//					if (net_sync) sync = true;
-	//					break;
-	//				}
-	//			}
-	//			//? Sync download/upload graphs if enabled
-	//			if (sync) {
-	//				const auto other = (string(dir) == "upload" ? "download" : "upload");
-	//				graph_max[other] = graph_max[dir];
-	//				max_count[other][0] = max_count[other][1] = 0;
-	//				break;
-	//			}
-	//		}
-	//	}
-
-	//	rescale = false;
-	//	return net.at(selected_iface);
+		rescale = false;
+		return net.at(selected_iface);
 	}
 }
 
@@ -1730,6 +1771,7 @@ namespace Proc {
 			if (WMIList.contains(pid)) {
 				detailed.io_read = floating_humanizer(_wtoi64(WMIList.at(pid).ReadTransferCount));
 				detailed.io_write = floating_humanizer(_wtoi64(WMIList.at(pid).WriteTransferCount));
+				Proc::WMI_requests.push_back(pid);
 			}
 
 			//? Get parent process name
@@ -1816,13 +1858,16 @@ namespace Proc {
 			}
 
 			do {
-				if (Runner::stopping)
+				if (Runner::stopping) {
+					if (not Proc::WMI_requests.empty()) Proc::WMI_trigger();
 					return current_procs;
+				}
 
 				const size_t pid = pe.th32ProcessID;
 				if (pid == 0) continue;
 				HandleWrapper pHandle(OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pe.th32ProcessID));
 				const bool hasWMI = WMIList.contains(pid);
+				bool wmi_request = (not hasWMI and not Proc::WMI_running);
 				
 				found.push_back(pid);
 
@@ -1892,8 +1937,6 @@ namespace Proc {
 				}
 
 				new_proc.threads = pe.cntThreads;
-				if (new_proc.threads == 0 and hasWMI)
-					new_proc.threads = WMIList.at(pid).ThreadCount;
 
 				uint64_t cpu_t = 0;
 				if (pHandle.valid) {
@@ -1908,12 +1951,16 @@ namespace Proc {
 						cpu_t = ULARGE_INTEGER{ kernelT.dwLowDateTime, kernelT.dwHighDateTime }.QuadPart + ULARGE_INTEGER{ userT.dwLowDateTime, userT.dwHighDateTime }.QuadPart;
 					}
 				}
-				
-				//? Only use WMI cpu and mem values if other methods failed
-				if (hasWMI and (cpu_t == 0 or new_proc.cpu_s == 0)) {
-					//? Process memory and cpu from background WMI thread
+
+				//? Process memory fallback to background WMI thread
+				if (new_proc.mem == 0 and hasWMI) {
 					new_proc.mem = _wtoi64(WMIList.at(pid).PrivateMemory);
-					
+					wmi_request = true;
+				}
+
+				//? Process cpu stats fallback to background WMI thread, will be inacurate when update timer is lower than 1 second
+				if ((cpu_t == 0 or new_proc.cpu_s == 0) and hasWMI) {
+
 					//? Convert process creation CIM_DATETIME to FILETIME, (less accurate than GetProcessTimes() due to loss of microsecond count)
 					if (new_proc.cpu_s == 0) {
 						const string strdate = bstr2str(WMIList.at(pid).CreationDate);
@@ -1931,12 +1978,13 @@ namespace Proc {
 								new_proc.cpu_s = ft.QuadPart;
 						}
 					}
-					
+
 					//? Process cpu times
 					cpu_t = _wtoi64(WMIList.at(pid).KernelModeTime) + _wtoi64(WMIList.at(pid).UserModeTime);
+
+					wmi_request = true;
 				}
-
-
+				
 				if (cpu_t != 0) {
 					if (new_proc.cpu_t == 0) new_proc.cpu_t = cpu_t;
 					
@@ -1950,10 +1998,11 @@ namespace Proc {
 					new_proc.cpu_t = cpu_t;
 				}
 
-
 				if (show_detailed and not got_detailed and new_proc.pid == detailed_pid) {
 					got_detailed = true;
 				}
+
+				if (wmi_request) Proc::WMI_requests.push_back(pid);
 
 			} while (Process32Next(pSnap(), &pe));
 
@@ -1973,7 +2022,7 @@ namespace Proc {
 			old_cputimes = cputimes;
 		}
 		
-		//* Collect info for services if currently displayed
+		//* Collect info for services using WMI if currently enabled
 		if (services and not no_update) {
 			bool got_detailed = false;
 			for (const auto& [name, svc] : WMISvcList) {
@@ -2114,7 +2163,7 @@ namespace Proc {
 		}
 
 		numpids = (int)out_vec.size() - filter_found;
-
+		if (not Proc::WMI_requests.empty()) Proc::WMI_trigger();
 		return out_vec;
 	}
 }

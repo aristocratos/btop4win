@@ -939,6 +939,8 @@ namespace Net {
 		auto& tty_mode = Config::getB("tty_mode");
 		auto& graph_symbol = (tty_mode ? "tty" : Config::getS("graph_symbol_net"));
 		string ip_addr = (net.ipv4.empty() ? net.ipv6 : net.ipv4);
+		if (ip_addr.size() > width - 28) ip_addr.resize(15);
+		const int ip_size = ip_addr.size();
 		if (old_ip != ip_addr) {
 			old_ip = ip_addr;
 			redraw = true;
@@ -947,7 +949,7 @@ namespace Net {
 		out.reserve(width * height);
 		const string title_left = Theme::c("net_box") + Fx::ub + Symbols::title_left;
 		const string title_right = Theme::c("net_box") + Fx::ubul + Symbols::title_right;
-		const int i_size = min((int)selected_iface.size(), 10);
+		const int i_size = min((int)selected_iface.size(), width - ip_size - 19);
 		const long long down_max = (net_auto ? graph_max.at("download") : ((long long)(Config::getI("net_download")) << 20) / 8);
 		const long long up_max = (net_auto ? graph_max.at("upload") : ((long long)(Config::getI("net_upload")) << 20) / 8);
 
@@ -963,18 +965,20 @@ namespace Net {
 
 			//? Interface selector and buttons
 
-			out += Mv::to(y, x+width - i_size - 9) + title_left + Fx::b + Theme::c("hi_fg") + "<b " + Theme::c("title")
-				+ uresize(selected_iface, 10) + Theme::c("hi_fg") + " n>" + title_right
-				+ Mv::to(y, x+width - i_size - 15) + title_left + Theme::c("hi_fg") + (net.stat.at("download").offset + net.stat.at("upload").offset > 0 ? Fx::bul : "") + 'z'
-				+ Theme::c("title") + "ero" + title_right;
-			Input::mouse_mappings["b"] = {y, x+width - i_size - 8, 1, 3};
-			Input::mouse_mappings["n"] = {y, x+width - 6, 1, 3};
-			Input::mouse_mappings["z"] = {y, x+width - i_size - 14, 1, 4};
-			if (width - i_size - 20 > 6) {
+			out += Mv::to(y, x + width - i_size - 9) + title_left + Fx::b + Theme::c("hi_fg") + "<b " + Theme::c("title")
+				+ uresize(selected_iface, i_size) + Theme::c("hi_fg") + " n>" + title_right;
+			Input::mouse_mappings["b"] = { y, x + width - i_size - 8, 1, 3 };
+			Input::mouse_mappings["n"] = { y, x + width - 6, 1, 3 };
+			if (width - i_size - ip_size - 20 > 4) {
+				out += Mv::to(y, x + width - i_size - 15) + title_left + Theme::c("hi_fg") + (net.stat.at("download").offset + net.stat.at("upload").offset > 0 ? Fx::bul : "") + 'z'
+					+ Theme::c("title") + "ero" + title_right;
+				Input::mouse_mappings["z"] = { y, x + width - i_size - 14, 1, 4 };
+			}
+			if (width - i_size - ip_size - 20 > 10) {
 				out += Mv::to(y, x+width - i_size - 21) + title_left + Theme::c("hi_fg") + (net_auto ? Fx::bul : "") + 'a' + Theme::c("title") + "uto" + title_right;
 				Input::mouse_mappings["a"] = {y, x+width - i_size - 20, 1, 4};
 			}
-			if (width - i_size - 20 > 13) {
+			if (width - i_size - ip_size - 20 > 16) {
 				out += Mv::to(y, x+width - i_size - 27) + title_left + Theme::c("title") + (net_sync ? Fx::bul : "") + 's' + Theme::c("hi_fg")
 					+ 'y' + Theme::c("title") + "nc" + title_right;
 				Input::mouse_mappings["y"] = {y, x+width - i_size - 26, 1, 4};
@@ -982,7 +986,7 @@ namespace Net {
 		}
 
 		//? IP or device address
-		if (not ip_addr.empty() and cmp_greater(width - i_size - 36, ip_addr.size())) {
+		if (not ip_addr.empty()) {
 			out += Mv::to(y, x + 8) + title_left + Theme::c("title") + Fx::b + ip_addr + title_right;
 		}
 
