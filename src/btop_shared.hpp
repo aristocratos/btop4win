@@ -84,6 +84,18 @@ namespace Cpu {
 	extern vector<string> available_fields;
 	extern vector<string> available_sensors;
 	extern tuple<int, long, string> current_bat;
+	extern string gpu_name;
+	extern string gpu_clock;
+	extern bool has_gpu;
+	extern atomic<uint64_t> smiTimer;
+
+	struct GpuRaw {
+		uint64_t usage = 0;
+		uint64_t mem_total = 0;
+		uint64_t mem_used = 0;
+		uint64_t temp = 0;
+		string clock_mhz;
+	};
 
 	struct cpu_info {
 		unordered_flat_map<string, deque<long long>> cpu_percent = {
@@ -93,9 +105,11 @@ namespace Cpu {
 			{"dpc", {}},
 			{"interrupt", {}},
 			{"idle", {}},
+			{"gpu", {}}
 		};
 		vector<deque<long long>> core_percent;
 		vector<deque<long long>> temp;
+		deque<long long> gpu_temp;
 		long long temp_max = 0;
 		array<float, 3> load_avg;
 	};
@@ -134,10 +148,10 @@ namespace Mem {
 	struct mem_info {
 		unordered_flat_map<string, uint64_t> stats =
 		{ {"total", 0}, {"used", 0}, {"available", 0}, {"commit", 0}, {"commit_total", 0}, {"cached", 0},
-			{"page_total", 0}, {"page_used", 0}, {"page_free", 0}};
+			{"page_total", 0}, {"page_used", 0}, {"page_free", 0}, {"gpu_total", 0}, {"gpu_used", 0}, {"gpu_free", 0} };
 		unordered_flat_map<string, deque<long long>> percent =
-			{{"used", {}}, {"available", {}}, {"commit", {}}, {"cached", 0},
-			{"page_used", {}}, {"page_free", {}}};
+		{ {"used", {}}, {"available", {}}, {"commit", {}}, {"cached", {}},
+			{"page_used", {}}, {"page_free", {}}, {"gpu_used", {}}, {"gpu_free", {}} };
 		unordered_flat_map<string, disk_info> disks;
 		vector<string> disks_order;
 		bool pagevirt = false;

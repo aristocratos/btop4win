@@ -292,6 +292,9 @@ namespace Tools {
 	//* Convert a celsius value to celsius, fahrenheit, kelvin or rankin and return tuple with new value and unit.
 	auto celsius_to(const long long& celsius, const string& scale) -> tuple<long long, string>;
 
+	//* Run process with arguments <cmd> and return process output in <ret>, only returns true if process exit code is 0
+	bool ExecCMD(const string& cmd, string& ret);
+
 }
 
 //* Simple logging implementation

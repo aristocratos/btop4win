@@ -185,7 +185,11 @@ namespace Menu {
 				"Conflicting keys for",
 				"h (help) and k (kill)",
 				"is accessible while holding shift."},
-
+			{"show_gpu",
+				"Also show gpu stats in cpu and mem box.",
+				"",
+				"Only works with Nvidia cards and needs",
+				"nvidia-smi.exe to work." },
 			{"presets",
 				"Define presets for the layout of the boxes.",
 				"",

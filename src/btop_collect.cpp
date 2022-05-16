@@ -51,6 +51,8 @@ tab-size = 4
 #pragma comment(lib, "Ws2_32.lib")
 #include <iphlpapi.h>
 #pragma comment(lib, "iphlpapi.lib")
+#include <powerbase.h>
+#pragma comment(lib, "PowrProf.lib")
 
 #define LODWORD(_qw)    ((DWORD)(_qw))
 #define HIDWORD(_qw)    ((DWORD)(((_qw) >> 32) & 0xffffffff))
@@ -99,7 +101,7 @@ namespace Tools {
 		TOKEN_PRIVILEGES tpriv;
 		TOKEN_PRIVILEGES old_tpriv;
 		LUID luid;
-		DWORD old_tprivSize = sizeof(TOKEN_PRIVILEGES);
+		DWORD tprivSize = sizeof(TOKEN_PRIVILEGES);
 
 		if (not LookupPrivilegeValue(0, SE_DEBUG_NAME, &luid))
 			throw std::runtime_error("setWinDebug() -> LookupPrivilegeValue() failed with ID: " + to_string(GetLastError()));
@@ -108,14 +110,14 @@ namespace Tools {
 		tpriv.Privileges[0].Luid = luid;
 		tpriv.Privileges[0].Attributes = 0;
 
-		if (not AdjustTokenPrivileges(hToken(), FALSE, &tpriv, sizeof(TOKEN_PRIVILEGES), &old_tpriv, &old_tprivSize))
+		if (not AdjustTokenPrivileges(hToken(), FALSE, &tpriv, tprivSize, &old_tpriv, &tprivSize))
 			throw std::runtime_error("setWinDebug() -> AdjustTokenPrivileges() [get] failed with ID: " + to_string(GetLastError()));
 
 		old_tpriv.PrivilegeCount = 1;
 		old_tpriv.Privileges[0].Luid = luid;
 		old_tpriv.Privileges[0].Attributes |= (SE_PRIVILEGE_ENABLED);
 
-		if (not AdjustTokenPrivileges(hToken(), FALSE, &old_tpriv, old_tprivSize, 0, 0))
+		if (not AdjustTokenPrivileges(hToken(), FALSE, &old_tpriv, tprivSize, 0, 0))
 			throw std::runtime_error("setWinDebug() -> AdjustTokenPrivileges() [set] failed with ID: " + to_string(GetLastError()));
 
 		RevertToSelf();
@@ -172,13 +174,27 @@ namespace Shared {
 
 }
 
+namespace Mem {
+	uint64_t old_systime;
+
+	int64_t get_totalMem();
+}
+
 namespace Cpu {
 	vector<long long> core_old_totals;
 	vector<long long> core_old_idles;
 	vector<string> available_fields;
-	vector<string> available_sensors = {"Auto"};
+	vector<string> available_sensors = { "Auto" };
 	cpu_info current_cpu;
 	bool got_sensors = false, cpu_temp_only = false;
+	string gpu_name;
+	bool has_gpu = false;
+	atomic<uint64_t> smiTimer = 0;
+	string smi_path;
+	std::mutex SMImutex;
+	std::binary_semaphore smi_work(0);
+	inline bool SMI_wait() { return smi_work.try_acquire_for(std::chrono::milliseconds(100)); }
+	inline void SMI_trigger() { smi_work.release(); }
 
 	//* Populate found_sensors map
 	bool get_sensors();
@@ -193,19 +209,12 @@ namespace Cpu {
 		int64_t crit = 0;
 	};
 
+	GpuRaw GpuRawStats{};
+
 	unordered_flat_map<string, Sensor> found_sensors;
 	string cpu_sensor;
 	vector<string> core_sensors;
 	unordered_flat_map<int, int> core_mapping;
-}
-
-namespace Mem {
-	uint64_t old_systime;
-
-	int64_t get_totalMem();
-}
-
-namespace Cpu {
 
 	//! Code for load average based on psutils calculation
 	//! see https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/wmi.c
@@ -255,6 +264,84 @@ namespace Cpu {
 		HANDLE waitHandle;
 		if (RegisterWaitForSingleObject(&waitHandle, eventh, (WAITORTIMERCALLBACK)LoadAvgCallback, (PVOID)hCounter, INFINITE, WT_EXECUTEDEFAULT) == 0) {
 			throw std::runtime_error("Cpu::loadAVG_init() -> RegisterWaitForSingleObject failed");
+		}
+	}
+
+	bool NvSMI_init() {
+		array<char, 1024> sysdir;
+		
+		if (not GetSystemDirectoryA(sysdir.data(), 1024))
+			return false;
+
+		smi_path = sysdir.data();
+		if (smi_path.empty())
+			return false;
+
+		smi_path += "\\nvidia-smi.exe";
+		if (not fs::exists(smi_path)) {
+			Logger::debug("Nvidia SMI not found. Disabling GPU monitoring.");
+			return false;
+		}
+
+		string name;
+		if (not ExecCMD(smi_path + " --query-gpu=gpu_name --format=csv,noheader", name)) {
+			Logger::error("Error running Nvidia SMI. Disabling GPU monitoring. Output from nvidia-smi:");
+			Logger::error(name);
+			return false;
+		}
+
+		name.pop_back();
+		name = s_replace(name, "NVIDIA ", "");
+		name = s_replace(name, "GeForce ", "");
+		gpu_name = name;
+
+		return true;
+	}
+
+	//* Background thread for Nvidia SMI
+	void NvSMI_runner() {
+		while (not Global::quitting and has_gpu) {
+			if (not SMI_wait()) continue;
+			if (smiTimer > 0) sleep_ms(Config::getI("update_ms") - (smiTimer / 750));
+			auto timeStart = time_micros();
+			GpuRaw stats{};
+			static string output;
+			output.clear();
+
+			if (ExecCMD(smi_path + " --query-gpu=utilization.gpu,clocks.gr,temperature.gpu,memory.total,memory.used --format=csv,noheader,nounits", output)) {
+				try {
+					auto outVec = ssplit(output, ',');
+					if (outVec.size() != 5)
+						throw std::runtime_error("Invalid number of return values.");
+
+					stats.usage = stoull(outVec.at(0));
+					stats.clock_mhz = ltrim(outVec.at(1)) + " Mhz";
+					stats.temp = stoull(outVec.at(2));
+					stats.mem_total = stoull(outVec.at(3));
+					stats.mem_used = stoull(outVec.at(4));
+
+				}
+				catch (const std::exception& e) {
+					Logger::error("Error running Nvidia SMI. Malformatted output. Disabling GPU monitoring.");
+					Logger::error("NvSMi_runner() -> "s + e.what());
+					has_gpu = false;
+				}
+			}
+			else {
+				Logger::error("Error running Nvidia SMI. Disabling GPU monitoring. Output from nvidia-smi:");
+				Logger::error(output);
+				has_gpu = false;
+			}
+
+			if (has_gpu) {
+				std::lock_guard lck(SMImutex);
+				GpuRawStats = stats;
+			}
+			else {
+				Global::resized = true;
+			}
+			
+			smiTimer = time_micros() - timeStart;
 		}
 	}
 }
@@ -321,9 +408,9 @@ namespace Proc {
 
 	};
 
-	std::binary_semaphore do_work(0);
-	inline bool WMI_wait() { return do_work.try_acquire_for(std::chrono::milliseconds(100)); }
-	inline void WMI_trigger() { do_work.release(); }
+	std::binary_semaphore wmi_work(0);
+	inline bool WMI_wait() { return wmi_work.try_acquire_for(std::chrono::milliseconds(100)); }
+	inline void WMI_trigger() { wmi_work.release(); }
 	atomic<bool> WMI_running = false;
 	atomic<uint64_t> WMItimer = 0;
 	vector<size_t> WMI_requests;
@@ -601,6 +688,13 @@ namespace Shared {
 		std::thread(Proc::WMICollect).detach();
 		Proc::WMI_trigger();
 
+		Cpu::has_gpu = Cpu::NvSMI_init();
+		if (Cpu::has_gpu) {
+			std::thread(Cpu::NvSMI_runner).detach();
+			Cpu::available_fields.push_back("gpu");
+		}
+		
+
 	}
 
 }
@@ -608,6 +702,7 @@ namespace Shared {
 namespace Cpu {
 	string cpuName;
 	string cpuHz;
+	string gpu_clock;
 	bool has_battery = true;
 	tuple<int, long, string> current_bat;
 
@@ -623,6 +718,48 @@ namespace Cpu {
 			{"totals", 0},
 			{"idles", 0}
 		};
+
+	typedef struct _PROCESSOR_POWER_INFORMATION {
+		ULONG Number;
+		ULONG MaxMhz;
+		ULONG CurrentMhz;
+		ULONG MhzLimit;
+		ULONG MaxIdleState;
+		ULONG CurrentIdleState;
+	} PROCESSOR_POWER_INFORMATION, * PPROCESSOR_POWER_INFORMATION;
+
+	string get_cpuHz() {
+		static bool failed = false;
+		if (failed) return "";
+		uint64_t hz = 0;
+		string cpuhz;
+
+		vector<PROCESSOR_POWER_INFORMATION> ppinfo(Shared::coreCount);
+
+		if (CallNtPowerInformation(ProcessorInformation, nullptr, 0, &ppinfo[0], Shared::coreCount * sizeof(PROCESSOR_POWER_INFORMATION)) != 0) {
+			Logger::warning("Cpu::get_cpuHz() -> CallNtPowerInformation() failed");
+			failed = true;
+			return "";
+		}
+
+		hz = ppinfo[0].CurrentMhz;
+
+		if (hz <= 1 or hz >= 1000000) {
+			Logger::warning("Cpu::get_cpuHz() -> Got invalid cpu mhz value");
+			failed = true;
+			return "";
+		}
+
+		if (hz >= 1000) {
+			if (hz >= 10000) cpuhz = to_string((int)round(hz / 1000));
+			else cpuhz = to_string(round(hz / 100) / 10.0).substr(0, 3);
+			cpuhz += " GHz";
+		}
+		else if (hz > 0)
+			cpuhz = to_string((int)round(hz)) + " MHz";
+
+		return cpuhz;
+	}
 
 	string get_cpuName() {
 		string name;
@@ -837,15 +974,6 @@ namespace Cpu {
 		//}
 	}
 
-	typedef struct _PROCESSOR_POWER_INFORMATION {
-		ULONG Number;
-		ULONG MaxMhz;
-		ULONG CurrentMhz;
-		ULONG MhzLimit;
-		ULONG MaxIdleState;
-		ULONG CurrentIdleState;
-	} PROCESSOR_POWER_INFORMATION, * PPROCESSOR_POWER_INFORMATION;
-
 	auto get_core_mapping() -> unordered_flat_map<int, int> {
 		unordered_flat_map<int, int> core_map;
 		if (cpu_temp_only) return core_map;
@@ -1046,6 +1174,18 @@ namespace Cpu {
 	auto collect(const bool no_update) -> cpu_info& {
 		if (Runner::stopping or (no_update and not current_cpu.cpu_percent.at("total").empty())) return current_cpu;
 		auto& cpu = current_cpu;
+
+		if (has_gpu and Config::getB("show_gpu")) {
+			std::lock_guard lck(Cpu::SMImutex);
+			SMI_trigger();
+			gpu_clock = GpuRawStats.clock_mhz;
+			cpu.gpu_temp.push_back(GpuRawStats.temp);
+			if (cpu.gpu_temp.size() > 40) cpu.gpu_temp.pop_front();
+			cpu.cpu_percent.at("gpu").push_back(GpuRawStats.usage);
+			while (cmp_greater(cpu.cpu_percent.at("gpu").size(), width * 2)) cpu.cpu_percent.at("gpu").pop_front();
+		}
+
+		cpuHz = get_cpuHz();
 	
 		cpu.load_avg[0] = Cpu::load_avg_1m;
 		cpu.load_avg[1] = Cpu::load_avg_5m;
@@ -1156,6 +1296,18 @@ namespace Mem {
 		auto& show_swap = Config::getB("show_page");
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
+
+		if (Cpu::has_gpu and Config::getB("show_gpu")) {
+			std::lock_guard lck(Cpu::SMImutex);
+			if (not Cpu::shown) Cpu::SMI_trigger();
+			mem.stats.at("gpu_total") = Cpu::GpuRawStats.mem_total;
+			mem.stats.at("gpu_used") = Cpu::GpuRawStats.mem_used;
+			mem.stats.at("gpu_free") = mem.stats.at("gpu_total") - mem.stats.at("gpu_used");
+			for (const auto name : { "gpu_used", "gpu_free" }) {
+				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("gpu_total")));
+				while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
+			}
+		}
 
 		MEMORYSTATUSEX memstat;
 		memstat.dwLength = sizeof(MEMORYSTATUSEX);

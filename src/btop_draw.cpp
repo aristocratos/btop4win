@@ -473,6 +473,8 @@ namespace Cpu {
 	Draw::Graph graph_upper;
 	Draw::Graph graph_lower;
 	Draw::Meter cpu_meter;
+	Draw::Meter gpu_meter;
+	Draw::Graph gpu_temp;
 	vector<Draw::Graph> core_graphs;
 	vector<Draw::Graph> temp_graphs;
 
@@ -482,9 +484,10 @@ namespace Cpu {
 		const bool show_temps = (Config::getB("check_temp") and got_sensors);
 		auto& single_graph = Config::getB("cpu_single_graph");
 		const bool hide_cores = show_temps and (cpu_temp_only or not Config::getB("show_coretemp"));
-		const int extra_width = (hide_cores ? max(6, 6 * b_column_size) : 0);
+		const bool show_gpu = (Config::getB("show_gpu") and has_gpu);
+		const int extra_width = (b_column_size > 0 and (hide_cores or not show_temps) ? max(6, 6 * b_column_size) : 0);
 		auto& graph_up_field = Config::getS("cpu_graph_upper");
-		auto& graph_lo_field = Config::getS("cpu_graph_lower");
+		auto& graph_lo_field = (Config::getS("cpu_graph_lower") == "gpu" and not show_gpu ? "total"s : Config::getS("cpu_graph_lower"));
 		auto& tty_mode = Config::getB("tty_mode");
 		auto& graph_symbol = (tty_mode ? "tty" : Config::getS("graph_symbol_cpu"));
 		auto& graph_bg = Symbols::graph_symbols.at((graph_symbol == "default" ? Config::getS("graph_symbol") + "_up" : graph_symbol + "_up")).at(6);
@@ -520,13 +523,17 @@ namespace Cpu {
 			//? Graphs & meters
 			graph_upper = Draw::Graph{x + width - b_width - 3, graph_up_height, "cpu", cpu.cpu_percent.at(graph_up_field), graph_symbol, false, true};
 			cpu_meter = Draw::Meter{b_width - (show_temps ? 23 - (b_column_size <= 1 and b_columns == 1 ? 6 : 0) : 11), "cpu"};
+			if (show_gpu) {
+				gpu_meter = Draw::Meter{ b_width - (show_temps ? 23 - (b_column_size <= 1 and b_columns == 1 ? 6 : 0) : 17), "cpu" };
+			}
 			if (not single_graph)
 				graph_lower = Draw::Graph{x + width - b_width - 3, graph_low_height, "cpu", cpu.cpu_percent.at(graph_lo_field), graph_symbol, Config::getB("cpu_invert_lower"), true};
 			if (mid_line) {
+				auto upper_text = (graph_up_field == "total" and graph_lo_field == "gpu" ? "cpu"s : graph_up_field);
 				out += Mv::to(y + graph_up_height + 1, x) + Fx::ub + Theme::c("cpu_box") + Symbols::div_left + Theme::c("div_line")
 					+ Symbols::h_line * (width - b_width - 2) + Symbols::div_right
-					+ Mv::to(y + graph_up_height + 1, x + ((width - b_width) / 2) - ((graph_up_field.size() + graph_lo_field.size()) / 2) - 4)
-					+ Theme::c("main_fg") + graph_up_field + Mv::r(1) + "▲▼" + Mv::r(1) + graph_lo_field;
+					+ Mv::to(y + graph_up_height + 1, x + ((width - b_width) / 2) - ((upper_text.size() + graph_lo_field.size()) / 2) - 4)
+					+ Theme::c("main_fg") + upper_text + Mv::r(1) + "▲▼" + Mv::r(1) + graph_lo_field;
 			}
 			if (b_column_size > 0 or extra_width > 0) {
 				core_graphs.clear();
@@ -542,6 +549,7 @@ namespace Cpu {
 						temp_graphs.emplace_back(5, 1, "", cpu.temp.at(i), graph_symbol, false, false, cpu.temp_max, -23);
 					}
 				}
+				if (show_gpu) gpu_temp = Draw::Graph{5, 1, "", cpu.gpu_temp, graph_symbol, false, false, 90, -23 };
 			}
 		}
 
@@ -648,19 +656,43 @@ namespace Cpu {
 		}
 
 		//? Load average
-		if (cy < b_height - 1 and cc <= b_columns) {
+		if (cy < b_height - 3 and cc <= b_columns) {
 			string lavg_pre;
 			int sep = 1;
-			if (b_column_size == 2 and show_temps) { lavg_pre = "Load AVG:"; sep = 3; }
-			else if (b_column_size == 2 or (b_column_size == 1 and show_temps)) { lavg_pre = "LAV:"; }
-			else if (b_column_size == 1 or (b_column_size == 0 and show_temps)) { lavg_pre = "L"; }
+			if (b_column_size == 2) { lavg_pre = "Load AVG:"; sep = 3; }
+			else if (b_column_size == 1) { lavg_pre = "LAV:"; }
 			string lavg;
 			for (const auto& val : cpu.load_avg) {
 				lavg += string(sep, ' ') + (lavg_pre.size() < 3 ? to_string((int)round(val)) : to_string(val).substr(0, 4));
 			}
-			out += Mv::to(b_y + b_height - 2, b_x + cx + 1) + Theme::c("main_fg") + lavg_pre + lavg;
+			out += Mv::to(b_y + b_height - 2 - (show_gpu ? 1 : 0), b_x + cx + 1) + Theme::c("main_fg") + lavg_pre + lavg;
 		}
 
+		//? Gpu Stats
+		if (show_gpu and cy < b_height - 2 and cc <= b_columns) {
+			out += Mv::to(b_y + b_height - 2, b_x + 1) + Theme::c("main_fg") + Fx::b + "GPU " + gpu_meter(cpu.cpu_percent.at("gpu").back())
+				+ Theme::g("cpu").at(clamp(cpu.cpu_percent.at("gpu").back(), 0ll, 100ll)) + rjust(to_string(cpu.cpu_percent.at("gpu").back()), 4) + Theme::c("main_fg") + '%';
+			
+			const auto [temp, unit] = celsius_to(cpu.gpu_temp.back(), temp_scale);
+			out += Theme::g("temp").at(clamp(cpu.gpu_temp.back() * 100 / 90, 0ll, 100ll));
+			if (show_temps and (b_column_size > 1 or b_columns > 1)) {
+				out += ' ' + Theme::c("inactive_fg") + graph_bg * 5 + Mv::l(5) + gpu_temp(cpu.gpu_temp, data_same or redraw);
+			}
+			out += rjust(to_string(temp), 4) + Theme::c("main_fg") + unit;
+			
+		}
+
+		//? Cpu clock
+		if (not cpuHz.empty()) {
+			out += Mv::to(b_y, b_x + b_width - 10) + Fx::ub + Theme::c("div_line") + Symbols::h_line * (7 - cpuHz.size())
+				+ Symbols::title_left + Fx::b + Theme::c("title") + cpuHz + Fx::ub + Theme::c("div_line") + Symbols::title_right;
+		}
+
+		//? Gpu clock
+		if (show_gpu and not gpu_clock.empty()) {
+			out += Mv::to(b_y + b_height - 1, b_x + b_width - 11) + Fx::ub + Theme::c("div_line") + Symbols::h_line * (8 - gpu_clock.size())
+				+ Symbols::title_left + Fx::b + Theme::c("title") + gpu_clock + Fx::ub + Theme::c("div_line") + Symbols::title_right;
+		}
 
 
 		redraw = false;
@@ -1582,31 +1614,31 @@ namespace Draw {
 		//* Calculate and draw cpu box outlines
 		if (Cpu::shown) {
 			using namespace Cpu;
-			const bool show_temp = (Config::getB("check_temp") and got_sensors);
+			const bool show_gpu = (Config::getB("show_gpu") and has_gpu);
 			width = round((double)Term::width * width_p / 100);
 			height = max(8, (int)ceil((double)Term::height * (trim(boxes) == "cpu" ? 100 : height_p) / 100));
 			x = 1;
 			y = cpu_bottom ? Term::height - height + 1 : 1;
 
-			b_columns = max(1, (int)ceil((double)(Shared::coreCount + 1) / (height - 5)));
-			if (b_columns * (21 + 12 * show_temp) < width - (width / 3)) {
+			b_columns = max(1, (int)ceil((double)(Shared::coreCount + 1) / (height - 5 - (show_gpu ? 1 : 0))));
+			if (b_columns * 33 < width - (width / 3)) {
 				b_column_size = 2;
-				b_width = (21 + 12 * show_temp) * b_columns - (b_columns - 1);
+				b_width = 33 * b_columns - (b_columns - 1);
 			}
-			else if (b_columns * (15 + 6 * show_temp) < width - (width / 3)) {
+			else if (b_columns * 21 < width - (width / 3)) {
 				b_column_size = 1;
-				b_width = (15 + 6 * show_temp) * b_columns - (b_columns - 1);
+				b_width = 21 * b_columns - (b_columns - 1);
 			}
-			else if (b_columns * (8 + 6 * show_temp) < width - (width / 3)) {
+			else if (b_columns * 14 < width - (width / 3)) {
 				b_column_size = 0;
 			}
 			else {
-				b_columns = (width - width / 3) / (8 + 6 * show_temp);
+				b_columns = (width - width / 3) / 14;
 				b_column_size = 0;
 			}
 
-			if (b_column_size == 0) b_width = (8 + 6 * show_temp) * b_columns + 1;
-			b_height = min(height - 2, (int)ceil((double)Shared::coreCount / b_columns) + 4);
+			if (b_column_size == 0) b_width = 8 * b_columns + 1;
+			b_height = min(height - 2, (int)ceil((double)Shared::coreCount / b_columns) + 4 + (show_gpu ? 1 : 0));
 
 			b_x = x + width - b_width - 1;
 			b_y = y + ceil((double)(height - 2) / 2) - ceil((double)b_height / 2) + 1;
@@ -1614,8 +1646,8 @@ namespace Draw {
 			box = createBox(x, y, width, height, Theme::c("cpu_box"), true, (cpu_bottom ? "" : "cpu"), (cpu_bottom ? "cpu" : ""), 1);
 
 			auto& custom = Config::getS("custom_cpu_name");
-			const string cpu_title = uresize((custom.empty() ? Cpu::cpuName : custom) , b_width - 5);
-			box += createBox(b_x, b_y, b_width, b_height, "", false, cpu_title);
+			const string cpu_title = uresize((custom.empty() ? Cpu::cpuName : custom) , b_width - 14);
+			box += createBox(b_x, b_y, b_width, b_height, "", false, cpu_title, (show_gpu ? uresize(gpu_name, b_width - 15) : ""));
 		}
 
 		//* Calculate and draw mem box outlines

@@ -296,7 +296,7 @@ namespace Runner {
 
 			//! DEBUG stats
 			if (Global::debug) {
-				if (debug_bg.empty() or redraw) Runner::debug_bg = Draw::createBox(2, 2, 32, 9, "", true, "debug");
+				if (debug_bg.empty() or redraw) Runner::debug_bg = Draw::createBox(2, 2, 32, 10, "", true, "debug");
 				debug_times.clear();
 				debug_times["total"] = {0, 0};
 			}
@@ -429,6 +429,7 @@ namespace Runner {
 					output += Mv::l(29) + Mv::d(1) + ljust(name, 8) + ljust(to_string(time_collect), 12) + ljust(to_string(time_draw), 9);
 				}
 				output += Mv::l(29) + Mv::d(1) + ljust("*WMI", 8) + ljust(to_string(Proc::WMItimer), 12) + ljust("0", 9);
+				output += Mv::l(29) + Mv::d(1) + ljust("*SMI", 8) + ljust(to_string(Cpu::smiTimer), 12) + ljust("0", 9);
 			}
 
 			//? If overlay isn't empty, print output without color and then print overlay on top

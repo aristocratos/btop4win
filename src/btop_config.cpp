@@ -59,6 +59,8 @@ namespace Config {
 		{"vim_keys",			"#* Set to True to enable \"h,j,k,l,g,G\" keys for directional control in lists.\n"
 								"#* Conflicting keys for h:\"help\" and k:\"kill\" is accessible while holding shift."},
 
+		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Only works with Nvidia cards and needs nvidia-smi.exe to work." },
+
 		{"rounded_corners",		"#* Rounded corners on boxes, is ignored if TTY mode is ON."},
 
 		{"graph_symbol", 		"#* Default symbols to use for graph creation, \"braille\", \"block\" or \"tty\".\n"
@@ -193,7 +195,7 @@ namespace Config {
 		{"proc_sorting", "cpu lazy"},
 		{"services_sorting", "cpu lazy"},
 		{"cpu_graph_upper", "total"},
-		{"cpu_graph_lower", "total"},
+		{"cpu_graph_lower", "gpu"},
 		{"cpu_sensor", "Auto"},
 		{"selected_battery", "Auto"},
 		{"cpu_core_map", ""},
@@ -229,6 +231,7 @@ namespace Config {
 		{"cpu_bottom", false},
 		{"show_uptime", true},
 		{"check_temp", true},
+		{"show_gpu", true},
 		{"show_coretemp", true},
 		{"background_update", true},
 		{"mem_graphs", true},

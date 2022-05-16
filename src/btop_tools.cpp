@@ -430,6 +430,20 @@ namespace Tools {
 		return (user != NULL ? user : "");
 	}
 
+	bool ExecCMD(const string& cmd, string& ret) {
+		FILE* pipe = _popen(cmd.c_str(), "rt");
+		if (not pipe) return false;
+
+		array<char, 128> buffer;
+		while (!feof(pipe)) {
+			if (fgets(buffer.data(), 128, pipe) != NULL)
+				ret += buffer.data();
+		}
+		if (_pclose(pipe) != 0) return false;
+
+		return true;
+	}
+
 }
 
 namespace Logger {
