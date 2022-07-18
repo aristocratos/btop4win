@@ -105,7 +105,7 @@
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <UACExecutionLevel>AsInvoker</UACExecutionLevel>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
     </Link>
     <Manifest>
@@ -151,7 +151,7 @@
       <SubSystem>Console</SubSystem>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ShowProgress>NotSet</ShowProgress>
-      <UACExecutionLevel>AsInvoker</UACExecutionLevel>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
     </Link>
     <Manifest>
