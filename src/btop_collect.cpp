@@ -1388,9 +1388,10 @@ namespace Mem {
 				if (device_type < 2) continue;
 
 				//? Get name of drive
+				string name = "";
 				array<char, MAX_PATH + 1> ch_name;
-				GetVolumeInformationA(letter.c_str(), ch_name.data(), MAX_PATH + 1, 0, 0, 0, nullptr, 0);
-				string name(ch_name.data());
+				if (GetVolumeInformationA(letter.c_str(), ch_name.data(), MAX_PATH + 1, 0, 0, 0, nullptr, 0))
+					name = string(ch_name.data());
 				
 				//? Match filter if not empty
 				if (not filter.empty()) {

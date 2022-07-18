@@ -656,7 +656,7 @@ namespace Cpu {
 		}
 
 		//? Load average
-		if (cy < b_height - 3 and cc <= b_columns) {
+		if (cy < b_height - 2 and cc <= b_columns) {
 			string lavg_pre;
 			int sep = 1;
 			if (b_column_size == 2) { lavg_pre = "Load AVG:"; sep = 3; }
@@ -666,6 +666,7 @@ namespace Cpu {
 				lavg += string(sep, ' ') + (lavg_pre.size() < 3 ? to_string((int)round(val)) : to_string(val).substr(0, 4));
 			}
 			out += Mv::to(b_y + b_height - 2 - (show_gpu ? 1 : 0), b_x + cx + 1) + Theme::c("main_fg") + lavg_pre + lavg;
+			cy++;
 		}
 
 		//? Gpu Stats
