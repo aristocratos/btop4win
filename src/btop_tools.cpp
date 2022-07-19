@@ -32,6 +32,7 @@ tab-size = 4
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <windows.h>
+#include <comutil.h>
 #include <winsock.h>
 
 #include <btop_shared.hpp>
@@ -86,6 +87,21 @@ namespace Term {
 		return { width, height };
 	}
 
+	void set_modes() {
+		static HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
+		static HANDLE handleIn = GetStdHandle(STD_INPUT_HANDLE);
+
+		DWORD out_consoleMode = out_saved_mode;
+		out_consoleMode |= (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN);
+		SetConsoleMode(handleOut, out_consoleMode);
+		SetConsoleOutputCP(65001);
+
+		DWORD in_consoleMode = 0;
+		in_consoleMode = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_INSERT_MODE | ENABLE_EXTENDED_FLAGS;
+		in_consoleMode &= ~ENABLE_ECHO_INPUT;
+		SetConsoleMode(handleIn, in_consoleMode);
+	}
+
 	bool init() {
 		if (not initialized) {
 			HANDLE handleOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -94,15 +110,7 @@ namespace Term {
 
 			if (initialized) {
 				
-				DWORD out_consoleMode = out_saved_mode;
-				out_consoleMode |= (ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN);
-				SetConsoleMode(handleOut, out_consoleMode);
-				SetConsoleOutputCP(65001);
-
-				DWORD in_consoleMode = 0;
-				in_consoleMode = ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_INSERT_MODE | ENABLE_EXTENDED_FLAGS;
-				in_consoleMode &= ~ENABLE_ECHO_INPUT;
-				SetConsoleMode(handleIn, in_consoleMode);
+				set_modes();
 
 				//? Disable stream sync
 				cin.sync_with_stdio(false);
@@ -234,6 +242,16 @@ namespace Tools {
 		string_view str_v = str;
 		while (str_v.ends_with(t_str)) str_v.remove_suffix(t_str.size());
 		return (string)str_v;
+	}
+
+	std::string ltrim2(const string& str, const string& t_str) {
+		size_t start = str.find_first_not_of(t_str);
+		return (start == std::string::npos) ? "" : str.substr(start);
+	}
+
+	std::string rtrim2(const string& str, const string& t_str) {
+		size_t end = str.find_last_not_of(t_str);
+		return (end == std::string::npos) ? "" : str.substr(0, end + 1);
 	}
 
 	auto ssplit(const string& str, const char& delim) -> vector<string> {
@@ -430,17 +448,122 @@ namespace Tools {
 		return (user != NULL ? user : "");
 	}
 
+	//bool ExecCMD(const string& cmd, string& ret) {
+	//	FILE* pipe = _popen(cmd.c_str(), "rt");
+	//	Term::set_modes();
+	//	if (not pipe) return false;
+	//	
+
+	//	array<char, 128> buffer;
+	//	while (!feof(pipe)) {
+	//		if (fgets(buffer.data(), 128, pipe) != NULL)
+	//			ret += buffer.data();
+	//	}
+	//	if (_pclose(pipe) != 0) return false;
+
+	//	return true;
+	//}
+
 	bool ExecCMD(const string& cmd, string& ret) {
-		FILE* pipe = _popen(cmd.c_str(), "rt");
-		if (not pipe) return false;
+		static const size_t OUTPUTBUFSIZE = 4096 * 10;
+		
+		STARTUPINFO sinfo;
+		PROCESS_INFORMATION pinfo;
+		SECURITY_ATTRIBUTES sattr;
+		HANDLE readfh;
+		char* cbuff;
 
-		array<char, 128> buffer;
-		while (!feof(pipe)) {
-			if (fgets(buffer.data(), 128, pipe) != NULL)
-				ret += buffer.data();
+		// Allocate a buffer to read the app's output
+		if (!(cbuff = (char*)GlobalAlloc(GMEM_FIXED, OUTPUTBUFSIZE))) {
+			Logger::debug("ExecCMD() failed to allocate memory.");
+			return false;
 		}
-		if (_pclose(pipe) != 0) return false;
 
+		// Initialize the STARTUPINFO struct
+		ZeroMemory(&sinfo, sizeof(STARTUPINFO));
+		sinfo.cb = sizeof(STARTUPINFO);
+
+		sinfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+
+		sinfo.wShowWindow = SW_HIDE;
+		sinfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+
+		// Initialize security attributes to allow the launched app to
+		// inherit the caller's STDOUT
+		sattr.nLength = sizeof(SECURITY_ATTRIBUTES);
+		sattr.lpSecurityDescriptor = 0;
+		sattr.bInheritHandle = TRUE;
+
+		// Get a pipe from which we read
+		// output from the launched app
+		if (!CreatePipe(&readfh, &sinfo.hStdOutput, &sattr, 0))
+		{
+			GlobalFree(cbuff);
+			Logger::debug("ExecCMD() failed to open pipe.");
+			return false;
+		}
+
+		// Launch the app. We should return immediately (while the app is running)
+		if (!CreateProcess(0, _bstr_t(cmd.c_str()), 0, 0, TRUE, 0, 0, 0, &sinfo, &pinfo))
+		{
+			CloseHandle(readfh);
+			CloseHandle(sinfo.hStdOutput);
+			GlobalFree(cbuff);
+			Logger::debug("ExecCMD() failed to create process.");
+			return false;
+		}
+
+		// Don't need the read access to these pipes
+		CloseHandle(sinfo.hStdInput);
+		CloseHandle(sinfo.hStdOutput);
+
+		// We haven't yet read app's output
+		sinfo.dwFlags = 0;
+
+		// Input and/or output still needs to be done?
+		while (readfh)
+		{
+			// Capture more output of the app?
+			// Read in upto OUTPUTBUFSIZE bytes
+			if (!ReadFile(readfh, cbuff + sinfo.dwFlags, OUTPUTBUFSIZE - sinfo.dwFlags, &pinfo.dwProcessId, 0) || !pinfo.dwProcessId)
+			{
+				// If we aborted for any reason other than that the
+				// app has closed that pipe, it's an
+				// error. Otherwise, the program has finished its
+				// output apparently
+				if (GetLastError() != ERROR_BROKEN_PIPE && pinfo.dwProcessId)
+				{
+					// An error reading the pipe
+					Logger::debug("ExecCMD() error reading pipe.");
+					GlobalFree(cbuff);
+					cbuff = 0;
+					break;
+				}
+
+				// Close the pipe
+				CloseHandle(readfh);
+				readfh = 0;
+			}
+
+			sinfo.dwFlags += pinfo.dwProcessId;
+		}
+
+		// Close output pipe
+		if (readfh) CloseHandle(readfh);
+
+		// Wait for the app to finish
+		WaitForSingleObject(pinfo.hProcess, INFINITE);
+
+		// Close process and thread handles
+		CloseHandle(pinfo.hProcess);
+		CloseHandle(pinfo.hThread);
+
+		if (cbuff) {
+			//*(cbuff + sinfo.dwFlags) = 0;
+			ret = string(cbuff);
+		};
+
+		GlobalFree(cbuff);
 		return true;
 	}
 

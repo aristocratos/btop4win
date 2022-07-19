@@ -414,7 +414,7 @@ namespace Theme {
 		themes.push_back("TTY");
 
 		for (const auto& path : { user_theme_dir, theme_dir } ) {
-			if (path.empty()) continue;
+			if (path.empty() or not fs::exists(path)) continue;
 			for (auto& file : fs::directory_iterator(path)) {
 				if (file.path().extension() == ".theme" and file.is_regular_file()) {
 					themes.push_back(file.path().string());

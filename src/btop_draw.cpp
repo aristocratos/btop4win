@@ -695,7 +695,6 @@ namespace Cpu {
 				+ Symbols::title_left + Fx::b + Theme::c("title") + gpu_clock + Fx::ub + Theme::c("div_line") + Symbols::title_right;
 		}
 
-
 		redraw = false;
 		return out + Fx::reset;
 	}

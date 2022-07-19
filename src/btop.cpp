@@ -23,6 +23,13 @@ tab-size = 4
 #include <iostream>
 #include <semaphore>
 
+#define _WIN32_DCOM
+#define _WIN32_WINNT 0x0600
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <windows.h>
+
 #include <btop_shared.hpp>
 #include <btop_tools.hpp>
 #include <btop_config.hpp>
@@ -503,51 +510,13 @@ int main(int argc, char **argv) {
 	if (argc > 1) argumentParser(argc, argv);
 
 	//? Setup paths for config, log and user themes
-//	for (const auto& env : {"XDG_CONFIG_HOME", "HOME"}) {
-//		if (std::getenv(env) != NULL and access(std::getenv(env), W_OK) != -1) {
-//			Config::conf_dir = fs::path(std::getenv(env)) / (((string)env == "HOME") ? ".config/btop" : "btop");
-//			break;
-//		}
-//	}
-//	if (Config::conf_dir.empty()) {
-//		cout 	<< "WARNING: Could not get path user HOME folder.\n"
-//				<< "Make sure $XDG_CONFIG_HOME or $HOME environment variables is correctly set to fix this." << endl;
-//	}
-//	else {
-//		if (std::error_code ec; not fs::is_directory(Config::conf_dir) and not fs::create_directories(Config::conf_dir, ec)) {
-//			cout 	<< "WARNING: Could not create or access btop config directory. Logging and config saving disabled.\n"
-//					<< "Make sure $XDG_CONFIG_HOME or $HOME environment variables is correctly set to fix this." << endl;
-//		}
-//		else {
-//			Config::conf_file = Config::conf_dir / "btop.conf";
-//			Logger::logfile = Config::conf_dir / "btop.log";
-//			Theme::user_theme_dir = Config::conf_dir / "themes";
-//			if (not fs::exists(Theme::user_theme_dir) and not fs::create_directory(Theme::user_theme_dir, ec)) Theme::user_theme_dir.clear();
-//		}
-//	}
-//	//? Try to find global btop theme path relative to binary path
-//#if defined(__linux__)
-//	{ 	std::error_code ec;
-//		Global::self_path = fs::read_symlink("/proc/self/exe", ec).remove_filename();
-//	}
-//#endif
-//	if (std::error_code ec; not Global::self_path.empty()) {
-//		Theme::theme_dir = fs::canonical(Global::self_path / "../share/btop/themes", ec);
-//		if (ec or not fs::is_directory(Theme::theme_dir) or access(Theme::theme_dir.c_str(), R_OK) == -1) Theme::theme_dir.clear();
-//	}
-//	//? If relative path failed, check two most common absolute paths
-//	if (Theme::theme_dir.empty()) {
-//		for (auto theme_path : {"/usr/local/share/btop/themes", "/usr/share/btop/themes"}) {
-//			if (fs::is_directory(fs::path(theme_path)) and access(theme_path, R_OK) != -1) {
-//				Theme::theme_dir = fs::path(theme_path);
-//				break;
-//			}
-//		}
-//	}
+	wchar_t self_path[FILENAME_MAX] = { 0 };
+	GetModuleFileNameW(nullptr, self_path, FILENAME_MAX);
 
-	Config::conf_dir = "c:/temp";
+	Config::conf_dir = fs::path(self_path).remove_filename();
 	Config::conf_file = Config::conf_dir / "btop.conf";
 	Logger::logfile = Config::conf_dir / "btop.log";
+	Theme::theme_dir = Config::conf_dir / "themes";
 
 	//? Config init
 	{	vector<string> load_warnings;
@@ -571,7 +540,7 @@ int main(int argc, char **argv) {
 
 	//? Initialize terminal and set options
 	if (not Term::init()) {
-		Global::exit_error_msg = "No tty detected!\nbtop++ needs an interactive shell to run.";
+		Global::exit_error_msg = "No tty detected!\nbtop4win needs an interactive shell to run.";
 		clean_quit(1);
 	}
 
@@ -588,7 +557,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	//? Platform dependent init and error check
+	//? Collector init and error check
 	try {
 		Shared::init();
 	}

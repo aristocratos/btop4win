@@ -234,6 +234,17 @@ namespace Tools {
 		return ltrim(rtrim(str, t_str), t_str);
 	}
 
+	//* Left-trim any of <t_str> from <str> and return new string
+	string ltrim2(const string& str, const string& t_str = " \n\r\t\f\v");
+
+	//* Right-trim any of <t_str> from <str> and return new string
+	string rtrim2(const string& str, const string& t_str = " \n\r\t\f\v");
+
+	//* Left/right-trim any of <t_str> from <str> and return new string
+	inline string trim2(const string& str, const string& t_str = " \n\r\t\f\v") {
+		return ltrim(rtrim(str, t_str), t_str);
+	}
+
 	//* Split <string> at all occurrences of <delim> and return as vector of strings
 	auto ssplit(const string& str, const char& delim = ' ') -> vector<string>;
 

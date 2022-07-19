@@ -88,6 +88,7 @@ namespace Cpu {
 	extern string gpu_clock;
 	extern bool has_gpu;
 	extern atomic<uint64_t> smiTimer;
+	extern atomic<uint64_t> OHMRTimer;
 
 	struct GpuRaw {
 		uint64_t usage = 0;
@@ -95,6 +96,12 @@ namespace Cpu {
 		uint64_t mem_used = 0;
 		uint64_t temp = 0;
 		string clock_mhz;
+	};
+
+	struct OHMRraw {
+		unordered_flat_map<string, GpuRaw> GPUS;
+		vector<int> CPU;
+		int CpuClock = 0;
 	};
 
 	struct cpu_info {
