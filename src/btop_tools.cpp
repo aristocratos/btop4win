@@ -256,12 +256,14 @@ namespace Tools {
 
 	auto ssplit(const string& str, const char& delim) -> vector<string> {
 		vector<string> out;
-		for (const auto& s : str 	| rng::views::split(delim)
-									| rng::views::transform([](auto &&rng) {
-										return string_view(&*rng.begin(), rng::distance(rng));
-		})) {
-			if (not s.empty()) out.emplace_back(s);
+		if (str.empty()) return out;
+		size_t last = 0;
+		for (size_t loc = str.find(delim); loc != std::string::npos; loc = str.find(delim, last)) {
+			out.push_back(str.substr(last, loc - last));
+			last = loc + 1;
 		}
+		if (str.size() - last - 1 > 0) out.push_back(str.substr(last));
+
 		return out;
 	}
 
