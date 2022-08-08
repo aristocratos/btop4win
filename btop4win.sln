@@ -4,6 +4,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 17.1.32319.34
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "btop4win", "btop4win.vcxproj", "{A2CC727D-B5E8-49FA-9750-FCD501AD4F9E}"
+	ProjectSection(ProjectDependencies) = postProject
+		{C0FE1C8B-3D85-4FA9-9343-547AD5DFAFFF} = {C0FE1C8B-3D85-4FA9-9343-547AD5DFAFFF}
+	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenHardwareMonitorReport", "openhardwaremonitor\OpenHardwareMonitorReport.csproj", "{C0FE1C8B-3D85-4FA9-9343-547AD5DFAFFF}"
 EndProject
