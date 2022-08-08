@@ -45,3 +45,5 @@ Win32
 
 #do not ignore .github directory
 !.github
+
+packages
