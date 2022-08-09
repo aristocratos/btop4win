@@ -309,6 +309,7 @@ namespace Cpu {
 	}
 
 	void OHMR_collect() {
+		static bool ohmr_init = true;
 		while (not Global::quitting and has_OHMR) {
 			if (not OHMR_wait()) continue;
 			if (OHMRTimer > 0) sleep_ms(Config::getI("update_ms") - (OHMRTimer / 750));
@@ -436,7 +437,9 @@ namespace Cpu {
 			//gpus[gname1].mem_total = 10240;
 			//gpus[gname1].mem_used = rand() % 5000 + 500;
 
+			//bool trigger = false;
 			{
+				atomic_wait(Runner::active);
 				std::lock_guard lck(OHMRmutex);
 				OHMRrawStats = stats;
 			}
@@ -455,14 +458,20 @@ namespace Cpu {
 				}
 
 				has_gpu = not has_gpu;
-				Global::resized = true;
+				if (not ohmr_init) Global::resized = true;
 			}
 			if (got_sensors == cpu_temps.empty()) {
 				atomic_wait(Runner::active);
 				got_sensors = not got_sensors;
 				if (OHMRrawStats.CPU.size() == 1) cpu_temp_only = true;
-				Global::resized = true;
+				if (not ohmr_init) Global::resized = true;
 			}
+
+			/*if (trigger) {
+				if (Runner::active) Runner::stop();
+				Cpu::collect();
+				Global::resized = true;
+			}*/
 
 			//Logger::debug("Cpu clock : " + to_string(cpu_clock));
 			//int i = 0;
@@ -480,6 +489,10 @@ namespace Cpu {
 			//}
 
 			OHMRTimer = time_micros() - timeStart;
+			if (ohmr_init) {
+				ohmr_init = false;
+				return;
+			}
 
 		}
 		
@@ -888,8 +901,10 @@ namespace Shared {
 		//? Start up background thread for Open Hardware Monitor Report
 		if (Config::bools.at("enable_ohmr")) {
 			Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
-			std::thread(Cpu::OHMR_collect).detach();
-			Cpu::OHMR_trigger();
+			Cpu::OHMR_collect();
+			
+			if (Cpu::has_OHMR) std::thread(Cpu::OHMR_collect).detach();
+			//Cpu::OHMR_trigger();
 		}
 		else {
 			Cpu::has_OHMR = false;
@@ -1400,10 +1415,26 @@ namespace Cpu {
 				cpuHz = to_string((int)round(hz)) + " MHz";
 
 			if (got_sensors) {
-				int i = 0;
-				for (auto& s : OHMRrawStats.CPU) {
-					if (current_cpu.temp.size() < i + 1) break;
-					current_cpu.temp.at(i).push_back(s);
+				current_cpu.temp.at(0).push_back(OHMRrawStats.CPU.front());
+				if (current_cpu.temp.at(0).size() > 20) current_cpu.temp.at(0).pop_front();
+				
+				int half = (current_cpu.temp.size() - 1) / 2;
+				bool h_threads = half == OHMRrawStats.CPU.size() - 1;
+				int i = 1;
+				for (; i < OHMRrawStats.CPU.size(); i++) {
+					if (i >= current_cpu.temp.size()) break;
+					
+					current_cpu.temp.at(i).push_back(OHMRrawStats.CPU.at(i));
+					if (current_cpu.temp.at(i).size() > 20) current_cpu.temp.at(i).pop_front();
+					
+					if (h_threads) {
+						current_cpu.temp.at(i+half).push_back(OHMRrawStats.CPU.at(i));
+						if (current_cpu.temp.at(i+half).size() > 20) current_cpu.temp.at(i+half).pop_front();
+					}
+
+				}
+				while (not h_threads and i < current_cpu.temp.size()) {
+					current_cpu.temp.at(i).push_back(0);
 					if (current_cpu.temp.at(i).size() > 20) current_cpu.temp.at(i).pop_front();
 					i++;
 				}
