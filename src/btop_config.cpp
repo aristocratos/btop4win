@@ -59,7 +59,12 @@ namespace Config {
 		{"vim_keys",			"#* Set to True to enable \"h,j,k,l,g,G\" keys for directional control in lists.\n"
 								"#* Conflicting keys for h:\"help\" and k:\"kill\" is accessible while holding shift."},
 
-		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Only works with Nvidia cards and needs nvidia-smi.exe to work." },
+		{"enable_ohmr",			"#* Enables monitoring of CPU temps, accurate CPU clock and GPU via Open Hardware Monitor Report.\n"
+								"#* Needs the btop modified fork (https://github.com/aristocratos/openhardwaremonitor) installed in OHMR folder where btop is installed."},
+
+		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Needs Open Hardware Monitor Report enabled."},
+
+		{"selected_gpu"			"#* Which GPU to display if multiple is detected."},
 
 		{"rounded_corners",		"#* Rounded corners on boxes, is ignored if TTY mode is ON."},
 
@@ -197,6 +202,7 @@ namespace Config {
 		{"cpu_graph_upper", "total"},
 		{"cpu_graph_lower", "gpu"},
 		{"cpu_sensor", "Auto"},
+		{"selected_gpu", "Auto"},
 		{"selected_battery", "Auto"},
 		{"cpu_core_map", ""},
 		{"temp_scale", "celsius"},
@@ -231,6 +237,7 @@ namespace Config {
 		{"cpu_bottom", false},
 		{"show_uptime", true},
 		{"check_temp", true},
+		{"enable_ohmr", true},
 		{"show_gpu", true},
 		{"show_coretemp", true},
 		{"background_update", true},
@@ -280,6 +287,7 @@ namespace Config {
 	fs::path conf_file;
 
 	vector<string> available_batteries = {"Auto"};
+	vector<string> available_gpus = {"Auto"};
 
 	vector<string> current_boxes;
 	vector<string> preset_list = {"cpu:0:default,mem:0:default,net:0:default,proc:0:default"};

@@ -534,7 +534,7 @@ namespace Cpu {
 			graph_upper = Draw::Graph{x + width - b_width - 3, graph_up_height, "cpu", cpu.cpu_percent.at(graph_up_field), graph_symbol, false, true};
 			cpu_meter = Draw::Meter{b_width - (show_temps ? 23 - (b_column_size <= 1 and b_columns == 1 ? 6 : 0) : 11), "cpu"};
 			if (show_gpu) {
-				gpu_meter = Draw::Meter{ b_width - (show_temps ? 23 - (b_column_size <= 1 and b_columns == 1 ? 6 : 0) : 17), "cpu" };
+				gpu_meter = Draw::Meter{ b_width - 23 - (b_column_size <= 1 and b_columns == 1 ? 6 : 0), "cpu" };
 			}
 			if (not single_graph)
 				graph_lower = Draw::Graph{x + width - b_width - 3, graph_low_height, "cpu", cpu.cpu_percent.at(graph_lo_field), graph_symbol, Config::getB("cpu_invert_lower"), true};
@@ -559,7 +559,12 @@ namespace Cpu {
 						temp_graphs.emplace_back(5, 1, "temp", cpu.temp.at(i), graph_symbol, false, false, cpu.temp_max, -23);
 					}
 				}
-				if (show_gpu) gpu_temp = Draw::Graph{5, 1, "temp", cpu.gpu_temp, graph_symbol, false, false, 90, -23 };
+			}
+
+			if (show_gpu) {
+				gpu_temp = Draw::Graph{ 5, 1, "temp", cpu.gpu_temp, graph_symbol, false, false, 90, -23 };
+				out += Mv::to(b_y + b_height - 1, b_x + 3) + Fx::ub + Theme::c("div_line") + Symbols::h_line * (b_width - 14) + Mv::l(b_width - 13)
+					+ Symbols::title_left_down + Fx::b + Theme::c("title") + uresize(gpu_name, b_width - 15) + Fx::ub + Theme::c("div_line") + Symbols::title_right_down;
 			}
 		}
 
@@ -1657,7 +1662,7 @@ namespace Draw {
 
 			auto& custom = Config::getS("custom_cpu_name");
 			const string cpu_title = uresize((custom.empty() ? Cpu::cpuName : custom) , b_width - 14);
-			box += createBox(b_x, b_y, b_width, b_height, "", false, cpu_title, (show_gpu ? uresize(gpu_name, b_width - 15) : ""));
+			box += createBox(b_x, b_y, b_width, b_height, "", false, cpu_title);
 		}
 
 		//* Calculate and draw mem box outlines

@@ -217,6 +217,7 @@ namespace Cpu {
 	};
 
 	OHMRraw OHMRrawStats{};
+	vector<string> gpu_order;
 
 	unordered_flat_map<string, Sensor> found_sensors;
 	string cpu_sensor;
@@ -337,6 +338,7 @@ namespace Cpu {
 			//int cpu_clock = 0;
 			string cur_id = "";
 			string gpu_name = "";
+			gpu_order.clear();
 
 
 			//? Split output to a vector of lines
@@ -357,6 +359,7 @@ namespace Cpu {
 							gpu_name = linevec.at(1);
 							if (gpu_name.empty()) gpu_name = cur_id;
 							isGPU = true;
+							gpu_order.push_back(gpu_name);
 						}
 						else
 							isGPU = false;
@@ -416,19 +419,51 @@ namespace Cpu {
 				}
 			}
 
+			//! For testing purposes on system without dedicated GPU
+			//string gname1 = "Nvidia RTX 3080";
+			//gpu_order.push_back(gname1);
+			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
+			//gpus[gname1].temp = rand() % 50 + 30;
+			//gpus[gname1].usage = rand() % 100;
+			//gpus[gname1].mem_total = 10240;
+			//gpus[gname1].mem_used = rand() % 5000 + 500;
+
+			//gname1 = "AMD Radeon 5770";
+			//gpu_order.push_back(gname1);
+			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
+			//gpus[gname1].temp = rand() % 50 + 30;
+			//gpus[gname1].usage = rand() % 100;
+			//gpus[gname1].mem_total = 10240;
+			//gpus[gname1].mem_used = rand() % 5000 + 500;
+
 			{
 				std::lock_guard lck(OHMRmutex);
-				if ((not gpus.empty() and not has_gpu) or (gpus.empty() and has_gpu)) {
-					has_gpu = not has_gpu;
-					Global::resized = true;
-				}
-				if ((not cpu_temps.empty() and not got_sensors) or (cpu_temps.empty() and got_sensors)) {
-					got_sensors = not got_sensors;
-					if (cpu_temps.size() == 1) cpu_temp_only = true;
-					Global::resized = true;
-				}
 				OHMRrawStats = stats;
 			}
+
+			if (has_gpu == gpus.empty()) {
+				atomic_wait(Runner::active);
+				Config::available_gpus = { "Auto" };
+				for (auto& gpu : gpu_order) {
+					Config::available_gpus.push_back(gpu);
+				}
+				if (auto it = rng::find(available_fields, "gpu"s); it != available_fields.end()) {
+					available_fields.erase(it);
+				}
+				else {
+					available_fields.push_back("gpu");
+				}
+
+				has_gpu = not has_gpu;
+				Global::resized = true;
+			}
+			if (got_sensors == cpu_temps.empty()) {
+				atomic_wait(Runner::active);
+				got_sensors = not got_sensors;
+				if (OHMRrawStats.CPU.size() == 1) cpu_temp_only = true;
+				Global::resized = true;
+			}
+
 			//Logger::debug("Cpu clock : " + to_string(cpu_clock));
 			//int i = 0;
 			//for (const auto& t : cpu_temps) {
@@ -851,10 +886,14 @@ namespace Shared {
 		}*/
 		
 		//? Start up background thread for Open Hardware Monitor Report
-		//Cpu::has_OHMR = false;
-		Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
-		std::thread(Cpu::OHMR_collect).detach();
-		Cpu::OHMR_trigger();
+		if (Config::bools.at("enable_ohmr")) {
+			Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
+			std::thread(Cpu::OHMR_collect).detach();
+			Cpu::OHMR_trigger();
+		}
+		else {
+			Cpu::has_OHMR = false;
+		}
 
 	}
 
@@ -866,6 +905,7 @@ namespace Cpu {
 	string gpu_clock;
 	bool has_battery = true;
 	tuple<int, long, string> current_bat;
+	string current_gpu = "";
 
 	const array<string, 6> time_names = { "kernel", "user", "dpc", "interrupt", "idle" };
 
@@ -1370,7 +1410,29 @@ namespace Cpu {
 			}
 
 			if (has_gpu) {
-				const auto& gpu = OHMRrawStats.GPUS.begin()->second;
+				if (current_gpu != Config::getS("selected_gpu")) {
+					current_gpu = Config::getS("selected_gpu");
+					cpu.gpu_temp.clear();
+					cpu.cpu_percent.at("gpu").clear();
+					
+					if (current_gpu != "Auto" and not OHMRrawStats.GPUS.contains(current_gpu)) {
+						current_gpu = "Auto";
+						Config::set("selected_gpu", current_gpu);
+					}
+
+					if (current_gpu == "Auto")
+						gpu_name = Config::available_gpus.at(1);
+					else
+						gpu_name = current_gpu;
+
+					for (const auto& s : { "NVIDIA", "Nvidia", "AMD", "Amd" }) {
+						gpu_name = s_replace(gpu_name, s, "");
+					}
+					gpu_name = trim(gpu_name);
+					
+					Cpu::redraw = true;
+				}
+				const auto& gpu = OHMRrawStats.GPUS.contains(current_gpu) ? OHMRrawStats.GPUS.at(current_gpu) : OHMRrawStats.GPUS.at(Config::available_gpus.at(1));
 				gpu_clock = gpu.clock_mhz;
 				cpu.gpu_temp.push_back(gpu.temp);
 				if (cpu.gpu_temp.size() > 40) cpu.gpu_temp.pop_front();
