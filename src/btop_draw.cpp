@@ -391,7 +391,14 @@ namespace Draw {
 					}
 				}
 				//? Generate graph symbol from 5x5 2D vector
-				graphs.at(current).at(horizon) += (height == 1 and result.at(0) + result.at(1) == 0) ? Mv::r(1) : graph_symbol.at((result.at(0) * 5 + result.at(1)));
+				if (height == 1) {
+					if (result.at(0) + result.at(1) == 0) graphs.at(current).at(horizon) += Mv::r(1);
+					else {
+						if (not color_gradient.empty()) graphs.at(current).at(horizon) += Theme::g(color_gradient).at(clamp(max(last, data_value), 0ll, 100ll));
+						graphs.at(current).at(horizon) += graph_symbol.at((result.at(0) * 5 + result.at(1)));
+					}
+				}
+				else graphs.at(current).at(horizon) += graph_symbol.at((result.at(0) * 5 + result.at(1)));
 			}
 			if (mult and i >= 0) last = data_value;
 		}
@@ -446,7 +453,10 @@ namespace Draw {
 		//? Make room for new characters on graph
 		if (not tty_mode) current = not current;
 		for (const int& i : iota(0, height)) {
-			if (graphs.at(current).at(i).at(1) == '[') graphs.at(current).at(i).erase(0, 4);
+			if (height == 1 and graphs.at(current).at(i).at(1) == '[') {
+				if (graphs.at(current).at(i).at(3) == 'C') graphs.at(current).at(i).erase(0, 4);
+				else graphs.at(current).at(i).erase(0, graphs.at(current).at(i).find_first_of('m') + 4);
+			}
 			else if (graphs.at(current).at(i).at(0) == ' ') graphs.at(current).at(i).erase(0, 1);
 			else graphs.at(current).at(i).erase(0, 3);
 		}
@@ -538,7 +548,7 @@ namespace Cpu {
 			if (b_column_size > 0 or extra_width > 0) {
 				core_graphs.clear();
 				for (const auto& core_data : cpu.core_percent) {
-					core_graphs.emplace_back(5 * b_column_size + extra_width, 1, "", core_data, graph_symbol);
+					core_graphs.emplace_back(5 * b_column_size + extra_width, 1, "cpu", core_data, graph_symbol);
 				}
 			}
 			if (show_temps) {
@@ -546,10 +556,10 @@ namespace Cpu {
 				temp_graphs.emplace_back(5, 1, "", cpu.temp.at(0), graph_symbol, false, false, cpu.temp_max, -23);
 				if (not hide_cores and b_column_size > 1) {
 					for (const auto& i : iota((size_t)1, cpu.temp.size())) {
-						temp_graphs.emplace_back(5, 1, "", cpu.temp.at(i), graph_symbol, false, false, cpu.temp_max, -23);
+						temp_graphs.emplace_back(5, 1, "temp", cpu.temp.at(i), graph_symbol, false, false, cpu.temp_max, -23);
 					}
 				}
-				if (show_gpu) gpu_temp = Draw::Graph{5, 1, "", cpu.gpu_temp, graph_symbol, false, false, 90, -23 };
+				if (show_gpu) gpu_temp = Draw::Graph{5, 1, "temp", cpu.gpu_temp, graph_symbol, false, false, 90, -23 };
 			}
 		}
 
@@ -633,16 +643,16 @@ namespace Cpu {
 				+ ljust(to_string(n), core_width);
 			if (b_column_size > 0 or extra_width > 0)
 				out += Theme::c("inactive_fg") + graph_bg * (5 * b_column_size + extra_width) + Mv::l(5 * b_column_size + extra_width)
-					+ Theme::g("cpu").at(clamp(cpu.core_percent.at(n).back(), 0ll, 100ll)) + core_graphs.at(n)(cpu.core_percent.at(n), data_same or redraw);
-			else
-				out += Theme::g("cpu").at(clamp(cpu.core_percent.at(n).back(), 0ll, 100ll));
+					+ core_graphs.at(n)(cpu.core_percent.at(n), data_same or redraw);
+			
+			out += Theme::g("cpu").at(clamp(cpu.core_percent.at(n).back(), 0ll, 100ll));
 			out += rjust(to_string(cpu.core_percent.at(n).back()), (b_column_size < 2 ? 3 : 4)) + Theme::c("main_fg") + '%';
 
 			if (show_temps and not hide_cores) {
 				const auto [temp, unit] = celsius_to(cpu.temp.at(n+1).back(), temp_scale);
 				const auto& temp_color = Theme::g("temp").at(clamp(cpu.temp.at(n+1).back() * 100 / cpu.temp_max, 0ll, 100ll));
 				if (b_column_size > 1)
-					out += ' ' + Theme::c("inactive_fg") + graph_bg * 5 + Mv::l(5) + temp_color
+					out += ' ' + Theme::c("inactive_fg") + graph_bg * 5 + Mv::l(5)
 						+ temp_graphs.at(n+1)(cpu.temp.at(n+1), data_same or redraw);
 				out += temp_color + rjust(to_string(temp), 4) + Theme::c("main_fg") + unit;
 			}
@@ -674,12 +684,12 @@ namespace Cpu {
 			out += Mv::to(b_y + b_height - 2, b_x + 1) + Theme::c("main_fg") + Fx::b + "GPU " + gpu_meter(cpu.cpu_percent.at("gpu").back())
 				+ Theme::g("cpu").at(clamp(cpu.cpu_percent.at("gpu").back(), 0ll, 100ll)) + rjust(to_string(cpu.cpu_percent.at("gpu").back()), 4) + Theme::c("main_fg") + '%';
 			
+			const auto& temp_color = Theme::g("temp").at(clamp(cpu.gpu_temp.back(), 0ll, 100ll));
 			const auto [temp, unit] = celsius_to(cpu.gpu_temp.back(), temp_scale);
-			out += Theme::g("temp").at(clamp(cpu.gpu_temp.back() * 100 / 90, 0ll, 100ll));
-			if (show_temps and (b_column_size > 1 or b_columns > 1)) {
+			if ((b_column_size > 1 or b_columns > 1)) {
 				out += ' ' + Theme::c("inactive_fg") + graph_bg * 5 + Mv::l(5) + gpu_temp(cpu.gpu_temp, data_same or redraw);
 			}
-			out += rjust(to_string(temp), 4) + Theme::c("main_fg") + unit;
+			out += temp_color + rjust(to_string(temp), 4) + Theme::c("main_fg") + unit;
 			
 		}
 
@@ -692,7 +702,7 @@ namespace Cpu {
 		//? Gpu clock
 		if (show_gpu and not gpu_clock.empty()) {
 			out += Mv::to(b_y + b_height - 1, b_x + b_width - 11) + Fx::ub + Theme::c("div_line") + Symbols::h_line * (8 - gpu_clock.size())
-				+ Symbols::title_left + Fx::b + Theme::c("title") + gpu_clock + Fx::ub + Theme::c("div_line") + Symbols::title_right;
+				+ Symbols::title_left_down + Fx::b + Theme::c("title") + gpu_clock + Fx::ub + Theme::c("div_line") + Symbols::title_right_down;
 		}
 
 		redraw = false;
@@ -784,7 +794,7 @@ namespace Mem {
 					for (const auto& [name, disk] : mem.disks) {
 						if (disk.io_read.empty()) continue;
 
-						io_graphs[name + "_activity"] = Draw::Graph{disks_width - 6, 1, "", disk.io_activity, graph_symbol};
+						io_graphs[name + "_activity"] = Draw::Graph{disks_width - 6, 1, "available", disk.io_activity, graph_symbol};
 
 						if (io_mode) {
 							//? Create one combined graph for IO read/write if enabled
@@ -882,7 +892,7 @@ namespace Mem {
 						const string used_percent = to_string(disk.used_percent);
 						out += Mv::to(y+1+cy, x+1+cx + round((double)disks_width / 2) - round((double)used_percent.size() / 2) - 1) + hu_div + used_percent + '%' + hu_div;
 					}
-					out += Mv::to(y+2+cy++, x+1+cx) + (big_disk ? " IO% " : " IO   " + Mv::l(2)) + Theme::c("inactive_fg") + graph_bg * (disks_width - 6) + Theme::g("available").at(clamp(disk.io_activity.back(), 50ll, 100ll))
+					out += Mv::to(y+2+cy++, x+1+cx) + (big_disk ? " IO% " : " IO   " + Mv::l(2)) + Theme::c("inactive_fg") + graph_bg * (disks_width - 6)
 						+ Mv::l(disks_width - 6) + io_graphs.at(mount + "_activity")(disk.io_activity, redraw or data_same) + Theme::c("main_fg");
 					if (++cy > height - 3) break;
 					if (io_graph_combined) {
