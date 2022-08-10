@@ -819,9 +819,10 @@ namespace Mem {
 
 				for (int i = 0; const auto& [name, ignored] : mem.disks) {
 					if (i * 2 > height - 2) break;
-					disk_meters_used[name] = Draw::Meter{disk_meter, "used"};
-					if (cmp_less_equal(mem.disks.size() * 3, height - 1))
-						disk_meters_free[name] = Draw::Meter{disk_meter, "free"};
+					
+					bool big_d = show_io_stat and cmp_less_equal(mem.disks.size() * 3 + disk_ios, height - 1);
+					if (big_d) disk_meters_used[name] = Draw::Meter{disk_meter, "used"};
+					 disk_meters_free[name] = Draw::Meter{disk_meter, (big_d ? "free" : "cpu"), not big_d};
 				}
 
 				out += Mv::to(y, x + width - 6) + Fx::ub + Theme::c("mem_box") + Symbols::title_left + (io_mode ? Fx::b : "") + Theme::c("hi_fg")
@@ -944,13 +945,13 @@ namespace Mem {
 						if (++cy > height - 3) break;
 					}
 
-					out += Mv::to(y+1+cy, x+1+cx) + (big_disk ? " Used:" + rjust(to_string(disk.used_percent) + '%', 4) : "U") + ' '
-						+ disk_meters_used.at(mount)(disk.used_percent) + rjust(human_used, (big_disk ? 9 : 5));
+					out += Mv::to(y + 1 + cy, x + 1 + cx) + (big_disk ? " Free:" + rjust(to_string(disk.free_percent) + '%', 4) : "F") + ' '
+						+ disk_meters_free.at(mount)(disk.free_percent) + rjust(human_free, (big_disk ? 9 : 5));
 					if (++cy > height - 3) break;
 
 					if (cmp_less_equal(disks.size() * 3 + (show_io_stat ? disk_ios : 0), height - 1)) {
-						out += Mv::to(y+1+cy, x+1+cx) + (big_disk ? " Free:" + rjust(to_string(disk.free_percent) + '%', 4) : "F") + ' '
-						+ disk_meters_free.at(mount)(disk.free_percent) + rjust(human_free, (big_disk ? 9 : 5));
+						out += Mv::to(y + 1 + cy, x + 1 + cx) + (big_disk ? " Used:" + rjust(to_string(disk.used_percent) + '%', 4) : "U") + ' '
+							+ disk_meters_used.at(mount)(disk.used_percent) + rjust(human_used, (big_disk ? 9 : 5));
 						cy++;
 						if (cmp_less_equal(disks.size() * 4 + (show_io_stat ? disk_ios : 0), height - 1)) cy++;
 					}
