@@ -438,13 +438,13 @@ namespace Cpu {
 			
 
 			//! For testing purposes on system without dedicated GPU
-			string gname1 = "Nvidia RTX 3080";
-			gpu_order.push_back(gname1);
-			gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
-			gpus[gname1].temp = rand() % 50 + 30;
-			gpus[gname1].usage = rand() % 100;
-			gpus[gname1].mem_total = 10240;
-			gpus[gname1].mem_used = rand() % 5000 + 500;
+			//string gname1 = "Nvidia RTX 3080";
+			//gpu_order.push_back(gname1);
+			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
+			//gpus[gname1].temp = rand() % 50 + 30;
+			//gpus[gname1].usage = rand() % 100;
+			//gpus[gname1].mem_total = 10240;
+			//gpus[gname1].mem_used = rand() % 5000 + 500;
 
 			//gname1 = "AMD Radeon 5770";
 			//gpu_order.push_back(gname1);
