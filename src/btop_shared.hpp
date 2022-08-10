@@ -117,7 +117,7 @@ namespace Cpu {
 		vector<deque<long long>> core_percent;
 		vector<deque<long long>> temp;
 		deque<long long> gpu_temp;
-		long long temp_max = 0;
+		long long temp_max = 100;
 		array<float, 3> load_avg;
 	};
 
@@ -127,12 +127,7 @@ namespace Cpu {
 	//* Draw contents of cpu box using <cpu> as source
 	string draw(const cpu_info& cpu, const bool force_redraw=false, const bool data_same=false);
 
-	//* Parse /proc/cpu info for mapping of core ids
-	auto get_core_mapping() -> unordered_flat_map<int, int>;
 	extern unordered_flat_map<int, int> core_mapping;
-
-	//* Get battery info from /sys
-	auto get_battery() -> tuple<int, long, string>;
 }
 
 namespace Mem {

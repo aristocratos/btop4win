@@ -128,7 +128,7 @@ namespace Draw {
 			}
 			banner += Mv::u(5) + Mv::r(5) + Global::fg_green + "(4win)";
 			banner += Mv::d(5) + Mv::r(7 - Global::Version.size())
-					+ Theme::c("main_fg") + Fx::b + Fx::i + "v" + Global::Version + Fx::reset;
+					+ (Theme::colors.contains("main_fg") ? Theme::c("main_fg") : Fx::fg_grey) + Fx::b + Fx::i + "v" + Global::Version + Fx::reset;
 		}
 		if (redraw) return "";
 		return (centered ? Mv::to(y, Term::width / 2 - width / 2) : Mv::to(y, x)) + banner;

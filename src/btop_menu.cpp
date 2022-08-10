@@ -373,22 +373,6 @@ namespace Menu {
 				"",
 				"Only works if check_temp is True and",
 				"the system is reporting core temps."},
-			{"cpu_core_map",
-				"Custom mapping between core and coretemp.",
-				"",
-				"Can be needed on certain cpus to get correct",
-				"temperature for correct core.",
-				"",
-				"Use lm-sensors or similar to see which cores",
-				"are reporting temperatures on your machine.",
-				"",
-				"Format: \"X:Y\"",
-				"X=core with wrong temp.",
-				"Y=core with correct temp.",
-				"Use space as separator between multiple",
-				"entries.",
-				"",
-				"Example: \"4:0 5:1 6:3\""},
 			{"temp_scale",
 				"Which temperature scale to use.",
 				"",
@@ -1072,10 +1056,6 @@ namespace Menu {
 					else if (option == "clock_format") {
 						Draw::update_clock(true);
 						screen_redraw = true;
-					}
-					else if (option == "cpu_core_map") {
-						atomic_wait(Runner::active);
-						Cpu::core_mapping = Cpu::get_core_mapping();
 					}
 				}
 				else if (selPred.test(isInt) and Config::intValid(option, editor.text)) {

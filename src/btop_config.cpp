@@ -130,11 +130,6 @@ namespace Config {
 
 		{"show_coretemp", 		"#* Show temperatures for cpu cores also if check_temp is True and sensors has been found."},
 
-		{"cpu_core_map",		"#* Set a custom mapping between core and coretemp, can be needed on certain cpus to get correct temperature for correct core.\n"
-								"#* Use lm-sensors or similar to see which cores are reporting temperatures on your machine.\n"
-								"#* Format \"x:y\" x=core with wrong temp, y=core with correct temp, use space as separator between multiple entries.\n"
-								"#* Example: \"4:0 5:1 6:3\""},
-
 		{"temp_scale", 			"#* Which temperature scale to use, available values: \"celsius\", \"fahrenheit\", \"kelvin\" and \"rankine\"."},
 
 		{"base_10_sizes",		"#* Use base 10 for bits/bytes sizes, KB = 1000 instead of KiB = 1024."},
@@ -204,7 +199,6 @@ namespace Config {
 		{"cpu_sensor", "Auto"},
 		{"selected_gpu", "Auto"},
 		{"selected_battery", "Auto"},
-		{"cpu_core_map", ""},
 		{"temp_scale", "celsius"},
 		{"clock_format", "%X"},
 		{"custom_cpu_name", ""},
@@ -416,23 +410,6 @@ namespace Config {
 		else if (name == "services_sorting" and not v_contains(Proc::sort_vector_service, value))
 			validError = "Invalid services sorting option!";
 
-		else if (name == "cpu_core_map") {
-			const auto maps = ssplit(value);
-			bool all_good = true;
-			for (const auto& map : maps) {
-				const auto map_split = ssplit(map, ':');
-				if (map_split.size() != 2)
-					all_good = false;
-				else if (not isint(map_split.at(0)) or not isint(map_split.at(1)))
-					all_good = false;
-
-				if (not all_good) {
-					validError = "Invalid formatting of cpu_core_map!";
-					return false;
-				}
-			}
-			return true;
-		}
 		else if (name == "io_graph_speeds") {
 			const auto maps = ssplit(value);
 			bool all_good = true;

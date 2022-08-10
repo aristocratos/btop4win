@@ -25,6 +25,7 @@ tab-size = 4
 #include <locale>
 #include <codecvt>
 #include <semaphore>
+#include <iostream>
 
 #define _WIN32_DCOM
 #define _WIN32_WINNT 0x0600
@@ -60,6 +61,7 @@ tab-size = 4
 #include <btop_shared.hpp>
 #include <btop_config.hpp>
 #include <btop_tools.hpp>
+#include <btop_draw.hpp>
 
 using std::ifstream, std::numeric_limits, std::streamsize, std::round, std::max, std::min;
 using std::clamp, std::string_literals::operator""s, std::cmp_equal, std::cmp_less, std::cmp_greater;
@@ -321,7 +323,7 @@ namespace Cpu {
 			}
 
 			string output;
-			if (not ExecCMD(OHMR_path + " SimpleInfo --OnlyCPUandGPU", output) or output.empty()) {
+			if (not ExecCMD(OHMR_path + " SimpleInfo --Mainboard --CPU --GPU", output) or output.empty()) {
 				Logger::error("Error running Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
 				has_OHMR = false;
 				return;
@@ -329,14 +331,13 @@ namespace Cpu {
 
 			bool isGPU = false;
 			bool hasPackage = false;
+			int mb_cpu = 0;
+			int mb_system = 0;
 			OHMRraw stats;
-			//unordered_flat_map<string, GpuRaw> gpus;
 			auto& gpus = stats.GPUS;
 			auto& cpu_temps = stats.CPU;
 			auto& cpu_clock = stats.CpuClock;
 
-			//vector<int> cpu_temps;
-			//int cpu_clock = 0;
 			string cur_id = "";
 			string gpu_name = "";
 			gpu_order.clear();
@@ -398,36 +399,52 @@ namespace Cpu {
 						//? Cpu core and package temp
 						else if (linevec.back().starts_with(cur_id + "/temp")) {
 							if (linevec.front().starts_with("CPU Core")) {
-								string cid = linevec.front().substr(linevec.front().rfind('#') + 1);
-								while (not cid.empty() and std::stoi(cid) > cpu_temps.size() + (hasPackage ? 2 : 1)) cpu_temps.push_back(0);
+								//string cid = linevec.front().substr(linevec.front().rfind('#') + 1);
+								//while (not cid.empty() and std::stoi(cid) > cpu_temps.size() + (hasPackage ? 2 : 1)) cpu_temps.push_back(0);
 								cpu_temps.push_back(std::stoi(linevec.at(1)));
 							}
 							else if (not hasPackage and linevec.front().starts_with("CPU Package")) {
 								cpu_temps.insert(cpu_temps.begin(), std::stoi(linevec.at(1)));
 								hasPackage = true;
 							}
+							else if (not hasPackage and linevec.front() == "CPU") {
+								mb_cpu = std::stoi(linevec.at(1));
+							}
+							else if (not hasPackage and linevec.front() == "System") {
+								mb_system = std::stoi(linevec.at(1));
+							}
 						}
 					}
 				}
 				catch (const std::exception& e) {
-					Logger::debug("Error during Open Hardware Monitor parsing: "s + e.what());
+					Logger::error("Error during Open Hardware Monitor parsing: "s + e.what());
+					has_gpu = false;
+					got_sensors = false;
+					has_OHMR = false;
+					Global::resized = true;
+					return;
 				}
 			}
 
-			if (not cpu_temps.empty()) {
-				if (not hasPackage) {
+			if (not hasPackage) {
+				if (mb_cpu > 0)
+					cpu_temps.insert(cpu_temps.begin(), mb_cpu);
+				else if (not cpu_temps.empty())
 					cpu_temps.insert(cpu_temps.begin(), std::accumulate(cpu_temps.begin(), cpu_temps.end(), 0) / cpu_temps.size());
-				}
+				else if (mb_system > 0)
+					cpu_temps.insert(cpu_temps.begin(), mb_system);
 			}
+
+			
 
 			//! For testing purposes on system without dedicated GPU
-			//string gname1 = "Nvidia RTX 3080";
-			//gpu_order.push_back(gname1);
-			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
-			//gpus[gname1].temp = rand() % 50 + 30;
-			//gpus[gname1].usage = rand() % 100;
-			//gpus[gname1].mem_total = 10240;
-			//gpus[gname1].mem_used = rand() % 5000 + 500;
+			string gname1 = "Nvidia RTX 3080";
+			gpu_order.push_back(gname1);
+			gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
+			gpus[gname1].temp = rand() % 50 + 30;
+			gpus[gname1].usage = rand() % 100;
+			gpus[gname1].mem_total = 10240;
+			gpus[gname1].mem_used = rand() % 5000 + 500;
 
 			//gname1 = "AMD Radeon 5770";
 			//gpu_order.push_back(gname1);
@@ -436,10 +453,10 @@ namespace Cpu {
 			//gpus[gname1].usage = rand() % 100;
 			//gpus[gname1].mem_total = 10240;
 			//gpus[gname1].mem_used = rand() % 5000 + 500;
+			
+			OHMRTimer = time_micros() - timeStart;
 
-			//bool trigger = false;
 			{
-				atomic_wait(Runner::active);
 				std::lock_guard lck(OHMRmutex);
 				OHMRrawStats = stats;
 			}
@@ -467,11 +484,6 @@ namespace Cpu {
 				if (not ohmr_init) Global::resized = true;
 			}
 
-			/*if (trigger) {
-				if (Runner::active) Runner::stop();
-				Cpu::collect();
-				Global::resized = true;
-			}*/
 
 			//Logger::debug("Cpu clock : " + to_string(cpu_clock));
 			//int i = 0;
@@ -488,15 +500,90 @@ namespace Cpu {
 			//	Logger::debug("Gpu mem total: " + to_string(g.mem_total));
 			//}
 
-			OHMRTimer = time_micros() - timeStart;
-			if (ohmr_init) {
-				ohmr_init = false;
-				return;
-			}
-
+			if (ohmr_init) { ohmr_init = false; return; }
 		}
-		
-		//Logger::debug(name);
+	}
+
+	void OHMR_init() {
+		OHMR_collect();
+		if (not has_OHMR) return;
+
+		string output;
+		if (not ExecCMD(OHMR_path + " ReportToConsole --CPU", output) or output.empty()) {
+			Logger::error("Error running Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
+			has_OHMR = false;
+			return;
+		}
+
+		//? Get Cpu TjMax temperature value
+		try {
+			auto lines = ssplit(output.substr(output.find("Parameters")), '\n');
+			bool hit = false;
+			for (auto& instr : lines) {
+				if (instr.contains("CPU Core") or instr.contains("CPU Package")) {
+					hit = true;
+				}
+				else if (instr.contains("TjMax") and hit) {
+					current_cpu.temp_max = std::stoi(instr.substr(instr.find_last_of(':') + 1));
+					break;
+				}
+				else if (not instr.contains("+"))
+					hit = false;
+				else if (instr.starts_with("-----"))
+					break;
+			}
+		}
+		catch (const std::exception& e) {
+			Logger::debug("Error getting CPU TjMax value from Open Hardware Monitor Report: "s + e.what());
+		}
+
+		//? Get Cpu core mapping
+		unordered_flat_map<int, int> core_map;
+		try {
+			int cpuid = 0, coreid = 0, n = 0;
+			auto lines = ssplit(output.substr(output.find("CPUID")), '\n');
+			int found_sensors = OHMRrawStats.CPU.size() - 1;
+
+			for (auto& instr : lines) {
+				if (instr.starts_with(" CPU Thread:")) {
+					cpuid = std::stoi(instr.substr(instr.find(':') + 1));
+				}
+				else if (instr.starts_with(" Core ID:")) {
+					coreid = std::stoi(instr.substr(instr.find(':') + 1));;
+					if (coreid >= found_sensors) {
+						if (n >= found_sensors) n = 0;
+						core_map[cpuid] = n++;
+					}
+					else
+						core_map[cpuid] = coreid;
+				}
+				else if (instr.starts_with("-----"))
+					break;
+			}
+		}
+		catch (const std::exception& e) {
+			Logger::debug("Error getting CPU core mapping from Open Hardware Monitor Report: "s + e.what());
+			core_map.clear();
+		}
+
+		//? If core mapping was incomplete try to guess remainder, if missing completely, map 0-0 1-1 2-2 etc.
+		if (cmp_less(core_map.size(), Shared::coreCount)) {
+			if (Shared::coreCount % 2 == 0 and (long)core_map.size() == Shared::coreCount / 2) {
+				for (int i = 0, n = 0; i < Shared::coreCount / 2; i++) {
+					if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
+					core_map[Shared::coreCount / 2 + i] = n++;
+				}
+			}
+			else {
+				core_map.clear();
+				for (int i = 0, n = 0; i < Shared::coreCount; i++) {
+					if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
+					core_map[i] = n++;
+				}
+			}
+		}
+
+		Cpu::core_mapping = core_map;
 	}
 
 	////* Background thread for Nvidia SMI
@@ -809,12 +896,7 @@ namespace Proc {
 				Proc::WMISvcList.swap(newWMISvcList);
 			}
 
-			//auto timeDone = time_micros();
 			Proc::WMItimer = time_micros() - timeStart;
-
-			/*auto timeNext = timeStart + 1'000'000;
-			if (auto timeNow = time_micros(); timeNext > timeNow) 
-				sleep_micros(timeNext - timeNow);*/
 		}
 	}
 }
@@ -824,6 +906,29 @@ namespace Shared {
 	fs::path procPath, passwd_path;
 	long pageSize, clkTck, coreCount;
 
+	void init_status(const string status) {
+		static bool enabled = Config::bools.at("enable_ohmr");
+		if (not enabled) return;
+		static int current = 0;
+		static const int x = Term::width / 2 - 15;
+		static const int y = Term::height / 2 - 10;
+		static string old_status;
+
+		if (current == 0) {
+			std::cout	<< Fx::bg_black << Term::clear
+						<< Draw::banner_gen(y, 0, true)
+						<< Mv::to(y + 6, x) << Fx::fg_green << "--> " << Fx::b << Fx::fg_white << status << Fx::ub;
+		}
+		else {
+			std::cout	<< Mv::to(y + 6 + current - 1, x) << Fx::fg_dark_grey << "--> " << Fx::fg_grey << old_status
+						<< Mv::to(y + 6 + current, x) << Fx::fg_green << "--> " << Fx::b << Fx::fg_white << status << Fx::ub;
+		}
+
+		old_status = status;
+		current++;
+		sleep_ms(100);
+	}
+
 	void init() {
 
 		//? Shared global variables init
@@ -831,6 +936,7 @@ namespace Shared {
 		passwd_path = "";
 
 		//? Set SE DEBUG mode
+		init_status("Setting SE Debug Mode");
 		try {
 			setWinDebug();
 		}
@@ -839,6 +945,7 @@ namespace Shared {
 			Logger::debug(e.what());
 		}
 
+		init_status("Getting system info");
 		SYSTEM_INFO sysinfo;
 		GetSystemInfo(&sysinfo);
 
@@ -854,11 +961,8 @@ namespace Shared {
 		}
 
 		clkTck = 100;
-		if (clkTck <= 0) {
-			clkTck = 100;
-			Logger::warning("Could not get system clock ticks per second. Defaulting to 100, processes cpu usage might be incorrect.");
-		}
 
+		init_status("CPU Init");
 		//? Init for namespace Cpu
 		Cpu::current_cpu.core_percent.insert(Cpu::current_cpu.core_percent.begin(), Shared::coreCount, {});
 		Cpu::current_cpu.temp.insert(Cpu::current_cpu.temp.begin(), Shared::coreCount + 1, {});
@@ -880,36 +984,37 @@ namespace Shared {
 		//? Start up loadAVG counter in background
 		std::thread(Cpu::loadAVG_init).detach();
 
-		//? Init for namespace Mem
-		Mem::old_systime = GetTickCount64();
-		Mem::collect();
-
-		//? Set up connection to WMI
-		Shared::WMI_init();
-
-		//? Start up WMI system info collector in background
-		std::thread(Proc::WMICollect).detach();
-		Proc::WMI_trigger();
-
-		//Cpu::has_gpu = false;
-		/*Cpu::has_gpu = Cpu::NvSMI_init();
-		if (Cpu::has_gpu) {
-			std::thread(Cpu::NvSMI_runner).detach();
-			Cpu::available_fields.push_back("gpu");
-		}*/
-		
+		init_status("Starting up Open Hardware Monitor");
 		//? Start up background thread for Open Hardware Monitor Report
 		if (Config::bools.at("enable_ohmr")) {
 			Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
-			Cpu::OHMR_collect();
-			
+			Cpu::OHMR_init();
 			if (Cpu::has_OHMR) std::thread(Cpu::OHMR_collect).detach();
-			//Cpu::OHMR_trigger();
 		}
 		else {
 			Cpu::has_OHMR = false;
 		}
 
+		init_status("MEM Init");
+		//? Init for namespace Mem
+		Mem::old_systime = GetTickCount64();
+		Mem::collect();
+
+		init_status("Connecting to WMI");
+		//? Set up connection to WMI
+		Shared::WMI_init();
+
+		init_status("Starting WMI monitor");
+		//? Start up WMI system info collector in background
+		std::thread(Proc::WMICollect).detach();
+		Proc::WMI_trigger();
+
+		if (Cpu::has_OHMR) {
+			atomic_wait_for(Proc::WMI_running, false, 100);
+			atomic_wait_for(Proc::WMI_running, true, 1000);
+		}
+
+		init_status("Drawing to screen");
 	}
 
 }
@@ -1030,227 +1135,6 @@ namespace Cpu {
 		
 
 		return name;
-	}
-
-	bool get_sensors() {
-		bool got_cpu = false, got_coretemp = false;
-		vector<fs::path> search_paths;
-		//try {
-		//	//? Setup up paths to search for sensors
-		//	if (fs::exists(fs::path("/sys/class/hwmon")) and access("/sys/class/hwmon", R_OK) != -1) {
-		//		for (const auto& dir : fs::directory_iterator(fs::path("/sys/class/hwmon"))) {
-		//			fs::path add_path = fs::canonical(dir.path());
-		//			if (v_contains(search_paths, add_path) or v_contains(search_paths, add_path / "device")) continue;
-
-		//			if (s_contains(add_path, "coretemp"))
-		//				got_coretemp = true;
-
-		//			for (const auto & file : fs::directory_iterator(add_path)) {
-		//				if (string(file.path().filename()) == "device") {
-		//					for (const auto & dev_file : fs::directory_iterator(file.path())) {
-		//						string dev_filename = dev_file.path().filename();
-		//						if (dev_filename.starts_with("temp") and dev_filename.ends_with("_input")) {
-		//							search_paths.push_back(file.path());
-		//							break;
-		//						}
-		//					}
-		//				}
-
-		//				string filename = file.path().filename();
-		//				if (filename.starts_with("temp") and filename.ends_with("_input")) {
-		//					search_paths.push_back(add_path);
-		//					break;
-		//				}
-		//			}
-		//		}
-		//	}
-		//	if (not got_coretemp and fs::exists(fs::path("/sys/devices/platform/coretemp.0/hwmon"))) {
-		//		for (auto& d : fs::directory_iterator(fs::path("/sys/devices/platform/coretemp.0/hwmon"))) {
-		//			fs::path add_path = fs::canonical(d.path());
-
-		//			for (const auto & file : fs::directory_iterator(add_path)) {
-		//				string filename = file.path().filename();
-		//				if (filename.starts_with("temp") and filename.ends_with("_input") and not v_contains(search_paths, add_path)) {
-		//						search_paths.push_back(add_path);
-		//						got_coretemp = true;
-		//						break;
-		//				}
-		//			}
-		//		}
-		//	}
-		//	//? Scan any found directories for temperature sensors
-		//	if (not search_paths.empty()) {
-		//		for (const auto& path : search_paths) {
-		//			const string pname = readfile(path / "name", path.filename());
-		//			for (const auto & file : fs::directory_iterator(path)) {
-		//				const string file_suffix = "input";
-		//				const int file_id = atoi(file.path().filename().c_str() + 4); // skip "temp" prefix
-		//				string file_path = file.path();
-
-		//				if (!s_contains(file_path, file_suffix)) {
-		//					continue;
-		//				}
-
-		//				const string basepath = file_path.erase(file_path.find(file_suffix), file_suffix.length());
-		//				const string label = readfile(fs::path(basepath + "label"), "temp" + to_string(file_id));
-		//				const string sensor_name = pname + "/" + label;
-		//				const int64_t temp = stol(readfile(fs::path(basepath + "input"), "0")) / 1000;
-		//				const int64_t high = stol(readfile(fs::path(basepath + "max"), "80000")) / 1000;
-		//				const int64_t crit = stol(readfile(fs::path(basepath + "crit"), "95000")) / 1000;
-
-		//				found_sensors[sensor_name] = {fs::path(basepath + "input"), label, temp, high, crit};
-
-		//				if (not got_cpu and (label.starts_with("Package id") or label.starts_with("Tdie"))) {
-		//					got_cpu = true;
-		//					cpu_sensor = sensor_name;
-		//				}
-		//				else if (label.starts_with("Core") or label.starts_with("Tccd")) {
-		//					got_coretemp = true;
-		//					if (not v_contains(core_sensors, sensor_name)) core_sensors.push_back(sensor_name);
-		//				}
-		//			}
-		//		}
-		//	}
-		//	//? If no good candidate for cpu temp has been found scan /sys/class/thermal
-		//	if (not got_cpu and fs::exists(fs::path("/sys/class/thermal"))) {
-		//		const string rootpath = fs::path("/sys/class/thermal/thermal_zone");
-		//		for (int i = 0; fs::exists(fs::path(rootpath + to_string(i))); i++) {
-		//			const fs::path basepath = rootpath + to_string(i);
-		//			if (not fs::exists(basepath / "temp")) continue;
-		//			const string label = readfile(basepath / "type", "temp" + to_string(i));
-		//			const string sensor_name = "thermal" + to_string(i) + "/" + label;
-		//			const int64_t temp = stol(readfile(basepath / "temp", "0")) / 1000;
-
-		//			int64_t high, crit;
-		//			for (int ii = 0; fs::exists(basepath / string("trip_point_" + to_string(ii) + "_temp")); ii++) {
-		//				const string trip_type = readfile(basepath / string("trip_point_" + to_string(ii) + "_type"));
-		//				if (not is_in(trip_type, "high", "critical")) continue;
-		//				auto& val = (trip_type == "high" ? high : crit);
-		//				val = stol(readfile(basepath / string("trip_point_" + to_string(ii) + "_temp"), "0")) / 1000;
-		//			}
-		//			if (high < 1) high = 80;
-		//			if (crit < 1) crit = 95;
-
-		//			found_sensors[sensor_name] = {basepath / "temp", label, temp, high, crit};
-		//		}
-		//	}
-
-		//}
-		//catch (...) {}
-
-		//if (not got_coretemp or core_sensors.empty()) {
-		//	cpu_temp_only = true;
-		//}
-		//else {
-		//	rng::sort(core_sensors, rng::less{});
-		//	rng::stable_sort(core_sensors, [](const auto& a, const auto& b){
-		//		return a.size() < b.size();
-		//	});
-		//}
-
-		//if (cpu_sensor.empty() and not found_sensors.empty()) {
-		//	for (const auto& [name, sensor] : found_sensors) {
-		//		if (s_contains(str_to_lower(name), "cpu") or s_contains(str_to_lower(name), "k10temp")) {
-		//			cpu_sensor = name;
-		//			break;
-		//		}
-		//	}
-		//	if (cpu_sensor.empty()) {
-		//		cpu_sensor = found_sensors.begin()->first;
-		//		Logger::warning("No good candidate for cpu sensor found, using random from all found sensors.");
-		//	}
-		//}
-
-		return not found_sensors.empty();
-	}
-
-	void update_sensors() {
-		if (cpu_sensor.empty()) return;
-
-		//const auto& cpu_sensor = (not Config::getS("cpu_sensor").empty() and found_sensors.contains(Config::getS("cpu_sensor")) ? Config::getS("cpu_sensor") : Cpu::cpu_sensor);
-
-		//found_sensors.at(cpu_sensor).temp = stol(readfile(found_sensors.at(cpu_sensor).path, "0")) / 1000;
-		//current_cpu.temp.at(0).push_back(found_sensors.at(cpu_sensor).temp);
-		//current_cpu.temp_max = found_sensors.at(cpu_sensor).crit;
-		//if (current_cpu.temp.at(0).size() > 20) current_cpu.temp.at(0).pop_front();
-
-		//if (Config::getB("show_coretemp") and not cpu_temp_only) {
-		//	vector<string> done;
-		//	for (const auto& sensor : core_sensors) {
-		//		if (v_contains(done, sensor)) continue;
-		//		found_sensors.at(sensor).temp = stol(readfile(found_sensors.at(sensor).path, "0")) / 1000;
-		//		done.push_back(sensor);
-		//	}
-		//	for (const auto& [core, temp] : core_mapping) {
-		//		if (cmp_less(core + 1, current_cpu.temp.size()) and cmp_less(temp, core_sensors.size())) {
-		//			current_cpu.temp.at(core + 1).push_back(found_sensors.at(core_sensors.at(temp)).temp);
-		//			if (current_cpu.temp.at(core + 1).size() > 20) current_cpu.temp.at(core + 1).pop_front();
-		//		}
-		//	}
-		//}
-	}
-
-	auto get_core_mapping() -> unordered_flat_map<int, int> {
-		unordered_flat_map<int, int> core_map;
-		if (cpu_temp_only) return core_map;
-
-		//? Try to get core mapping from /proc/cpuinfo
-		//ifstream cpuinfo(Shared::procPath / "cpuinfo");
-		//if (cpuinfo.good()) {
-		//	int cpu, core, n = 0;
-		//	for (string instr; cpuinfo >> instr;) {
-		//		if (instr == "processor") {
-		//			cpuinfo.ignore(SSmax, ':');
-		//			cpuinfo >> cpu;
-		//		}
-		//		else if (instr.starts_with("core")) {
-		//			cpuinfo.ignore(SSmax, ':');
-		//			cpuinfo >> core;
-		//			if (std::cmp_greater_equal(core, core_sensors.size())) {
-		//				if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
-		//				core_map[cpu] = n++;
-		//			}
-		//			else
-		//				core_map[cpu] = core;
-		//		}
-		//		cpuinfo.ignore(SSmax, '\n');
-		//	}
-		//}
-
-		////? If core mapping from cpuinfo was incomplete try to guess remainder, if missing completely, map 0-0 1-1 2-2 etc.
-		//if (cmp_less(core_map.size(), Shared::coreCount)) {
-		//	if (Shared::coreCount % 2 == 0 and (long)core_map.size() == Shared::coreCount / 2) {
-		//		for (int i = 0, n = 0; i < Shared::coreCount / 2; i++) {
-		//			if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
-		//			core_map[Shared::coreCount / 2 + i] = n++;
-		//		}
-		//	}
-		//	else {
-		//		core_map.clear();
-		//		for (int i = 0, n = 0; i < Shared::coreCount; i++) {
-		//			if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
-		//			core_map[i] = n++;
-		//		}
-		//	}
-		//}
-
-		////? Apply user set custom mapping if any
-		//const auto& custom_map = Config::getS("cpu_core_map");
-		//if (not custom_map.empty()) {
-		//	try {
-		//		for (const auto& split : ssplit(custom_map)) {
-		//			const auto vals = ssplit(split, ':');
-		//			if (vals.size() != 2) continue;
-		//			int change_id = std::stoi(vals.at(0));
-		//			int new_id = std::stoi(vals.at(1));
-		//			if (not core_map.contains(change_id) or cmp_greater(new_id, core_sensors.size())) continue;
-		//			core_map.at(change_id) = new_id;
-		//		}
-		//	}
-		//	catch (...) {}
-		//}
-
-		return core_map;
 	}
 
 	struct battery {
@@ -1415,28 +1299,14 @@ namespace Cpu {
 				cpuHz = to_string((int)round(hz)) + " MHz";
 
 			if (got_sensors) {
-				current_cpu.temp.at(0).push_back(OHMRrawStats.CPU.front());
+				current_cpu.temp.at(0).push_back(OHMRrawStats.CPU.at(0));
 				if (current_cpu.temp.at(0).size() > 20) current_cpu.temp.at(0).pop_front();
-				
-				int half = (current_cpu.temp.size() - 1) / 2;
-				bool h_threads = half == OHMRrawStats.CPU.size() - 1;
-				int i = 1;
-				for (; i < OHMRrawStats.CPU.size(); i++) {
-					if (i >= current_cpu.temp.size()) break;
-					
-					current_cpu.temp.at(i).push_back(OHMRrawStats.CPU.at(i));
-					if (current_cpu.temp.at(i).size() > 20) current_cpu.temp.at(i).pop_front();
-					
-					if (h_threads) {
-						current_cpu.temp.at(i+half).push_back(OHMRrawStats.CPU.at(i));
-						if (current_cpu.temp.at(i+half).size() > 20) current_cpu.temp.at(i+half).pop_front();
-					}
 
-				}
-				while (not h_threads and i < current_cpu.temp.size()) {
-					current_cpu.temp.at(i).push_back(0);
-					if (current_cpu.temp.at(i).size() > 20) current_cpu.temp.at(i).pop_front();
-					i++;
+				for (const auto& [core, temp] : core_mapping) {
+					if (cmp_less(core + 1, current_cpu.temp.size()) and cmp_less(temp, OHMRrawStats.CPU.size() - 1)) {
+						current_cpu.temp.at(core + 1).push_back(OHMRrawStats.CPU.at(temp + 1));
+						if (current_cpu.temp.at(core + 1).size() > 20) current_cpu.temp.at(core + 1).pop_front();
+					}
 				}
 			}
 
@@ -1584,6 +1454,11 @@ namespace Mem {
 		auto& show_swap = Config::getB("show_page");
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
+
+		//if (Cpu::has_OHMR and Cpu::has_gpu) {
+		//	std::lock_guard lck(Cpu::OHMRmutex);
+		//	if (not Cpu::shown) Cpu::OHMR_trigger();
+		//}
 
 		//if (Cpu::has_gpu and Config::getB("show_gpu")) {
 		//	std::lock_guard lck(Cpu::SMImutex);

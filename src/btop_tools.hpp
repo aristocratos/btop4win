@@ -67,7 +67,12 @@ namespace Fx {
 
 	//* Return a string with all colors and text styling removed
 	inline string uncolor(const string& s) { return std::regex_replace(s, color_regex, ""); }
-	// string uncolor(const string& s);
+	
+	const string bg_black = e + "40m";
+	const string fg_white = e + "97m";
+	const string fg_grey = e + "37m";
+	const string fg_green = e + "92m";
+	const string fg_dark_grey = e + "90m";
 
 }
 
