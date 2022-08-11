@@ -509,6 +509,8 @@ int main(int argc, char **argv) {
 	//? Call argument parser if launched with arguments
 	if (argc > 1) argumentParser(argc, argv);
 
+	SetConsoleTitleA("btop4win++");
+
 	//? Setup paths for config, log and user themes
 	wchar_t self_path[FILENAME_MAX] = { 0 };
 	GetModuleFileNameW(nullptr, self_path, FILENAME_MAX);
@@ -525,7 +527,7 @@ int main(int argc, char **argv) {
 		if (Config::current_boxes.empty()) Config::check_boxes(Config::getS("shown_boxes"));
 		Config::set("lowcolor", (Global::arg_low_color ? true : not Config::getB("truecolor")));
 
-		Global::debug = true;
+		Global::debug = true; //! <------------------------------------------------------------- REMOVE
 		if (Global::debug) {
 			Logger::set("DEBUG");
 			Logger::debug("Starting in DEBUG mode!");
