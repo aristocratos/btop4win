@@ -177,8 +177,6 @@ namespace Config {
 
 		{"show_battery", 		"#* Show battery stats in top right if battery is present."},
 
-		{"selected_battery",	"#* Which battery to use if multiple are present. \"Auto\" for auto detection."},
-
 		{"log_level", 			"#* Set loglevel for \"~/.config/btop/btop.log\" levels are: \"ERROR\" \"WARNING\" \"INFO\" \"DEBUG\".\n"
 								"#* The level set includes all lower levels, i.e. \"DEBUG\" will show all logging info."}
 	};
@@ -198,7 +196,6 @@ namespace Config {
 		{"cpu_graph_lower", "gpu"},
 		{"cpu_sensor", "Auto"},
 		{"selected_gpu", "Auto"},
-		{"selected_battery", "Auto"},
 		{"temp_scale", "celsius"},
 		{"clock_format", "%X"},
 		{"custom_cpu_name", ""},
@@ -280,7 +277,6 @@ namespace Config {
 	fs::path conf_dir;
 	fs::path conf_file;
 
-	vector<string> available_batteries = {"Auto"};
 	vector<string> available_gpus = {"Auto"};
 
 	vector<string> current_boxes;

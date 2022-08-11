@@ -45,7 +45,6 @@ namespace Config {
 
 	extern vector<string> current_boxes;
 	extern vector<string> preset_list;
-	extern vector<string> available_batteries;
 	extern vector<string> available_gpus;
 	extern int current_preset;
 

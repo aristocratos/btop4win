@@ -1138,147 +1138,39 @@ namespace Cpu {
 		bool use_energy = true;
 	};
 
-	auto get_battery() -> tuple<int, long, string> {
-		if (not has_battery) return {0, 0, ""};
-		//static string auto_sel;
-		//static unordered_flat_map<string, battery> batteries;
+	auto get_battery() -> tuple<int, long long, string> {
 
-		////? Get paths to needed files and check for valid values on first run
-		//if (batteries.empty() and has_battery) {
-		//	if (fs::exists("/sys/class/power_supply")) {
-		//		for (const auto& d : fs::directory_iterator("/sys/class/power_supply")) {
-		//			//? Only consider online power supplies of type Battery or UPS
-		//			//? see kernel docs for details on the file structure and contents
-		//			//? https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-class-power
-		//			battery new_bat;
-		//			fs::path bat_dir;
-		//			try {
-		//				if (not d.is_directory()
-		//					or not fs::exists(d.path() / "type")
-		//					or not fs::exists(d.path() / "present")
-		//					or stoi(readfile(d.path() / "present")) != 1)
-		//					continue;
-		//				string dev_type = readfile(d.path() / "type");
-		//				if (is_in(dev_type, "Battery", "UPS")) {
-		//					bat_dir = d.path();
-		//					new_bat.base_dir = d.path();
-		//					new_bat.device_type = dev_type;
-		//				}
-		//			} catch (...) {
-		//				//? skip power supplies not conforming to the kernel standard
-		//				continue;
-		//			}
+		int percent = -1;
+		long long seconds = 0;
+		string status = "unknown";
 
-		//			if (fs::exists(bat_dir / "energy_now")) new_bat.energy_now = bat_dir / "energy_now";
-		//			else if (fs::exists(bat_dir / "charge_now")) new_bat.energy_now = bat_dir / "charge_now";
-		//			else new_bat.use_energy = false;
+		SYSTEM_POWER_STATUS pwr;
+		if (GetSystemPowerStatus(&pwr)) {
+			if (int stat = static_cast<int>(pwr.BatteryFlag); stat <= 8) {
+				has_battery = true;
+				status = (stat == 8 ? "charging" : "discharging");
+				percent = static_cast<int>(pwr.BatteryLifePercent);
+				if (percent > 100)
+					percent = -1;
+				else {
+					seconds = static_cast<long long>(pwr.BatteryLifeTime);
+					if (seconds < 0) seconds = 0;
+				}
+			}
+		}
+		
+		
+		if (percent == -1) {
+			has_battery = false;
+			return { 0, 0, "" };
+		}
 
-		//			if (fs::exists(bat_dir / "energy_full")) new_bat.energy_full = bat_dir / "energy_full";
-		//			else if (fs::exists(bat_dir / "charge_full")) new_bat.energy_full = bat_dir / "charge_full";
-		//			else new_bat.use_energy = false;
-
-		//			if (not new_bat.use_energy and not fs::exists(bat_dir / "capacity")) {
-		//				continue;
-		//			}
-
-		//			if (fs::exists(bat_dir / "power_now")) new_bat.power_now = bat_dir / "power_now";
-		//			else if (fs::exists(bat_dir / "current_now")) new_bat.power_now = bat_dir / "current_now";
-
-		//			if (fs::exists(bat_dir / "AC0/online")) new_bat.online = bat_dir / "AC0/online";
-		//			else if (fs::exists(bat_dir / "AC/online")) new_bat.online = bat_dir / "AC/online";
-
-		//			batteries[bat_dir.filename()] = new_bat;
-		//			Config::available_batteries.push_back(bat_dir.filename());
-		//		}
-		//	}
-		//	if (batteries.empty()) {
-		//		has_battery = false;
-		//		return {0, 0, ""};
-		//	}
-		//}
-
-		//auto& battery_sel = Config::getS("selected_battery");
-
-		//if (auto_sel.empty()) {
-		//	for (auto& [name, bat] : batteries) {
-		//		if (bat.device_type == "Battery") {
-		//			auto_sel = name;
-		//			break;
-		//		}
-		//	}
-		//	if (auto_sel.empty()) auto_sel = batteries.begin()->first;
-		//}
-
-		//auto& b = (battery_sel != "Auto" and batteries.contains(battery_sel) ? batteries.at(battery_sel) : batteries.at(auto_sel));
-
-		//int percent = -1;
-		//long seconds = -1;
-
-		////? Try to get battery percentage
-		//if (b.use_energy) {
-		//	try {
-		//		percent = round(100.0 * stoll(readfile(b.energy_now, "-1")) / stoll(readfile(b.energy_full, "1")));
-		//	}
-		//	catch (const std::invalid_argument&) { }
-		//	catch (const std::out_of_range&) { }
-		//}
-		//if (percent < 0) {
-		//	try {
-		//		percent = stoll(readfile(b.base_dir / "capacity", "-1"));
-		//	}
-		//	catch (const std::invalid_argument&) { }
-		//	catch (const std::out_of_range&) { }
-		//}
-		//if (percent < 0) {
-		//	has_battery = false;
-		//	return {0, 0, ""};
-		//}
-
-		////? Get charging/discharging status
-		//string status = str_to_lower(readfile(b.base_dir / "status", "unknown"));
-		//if (status == "unknown" and not b.online.empty()) {
-		//	const auto online = readfile(b.online, "0");
-		//	if (online == "1" and percent < 100) status = "charging";
-		//	else if (online == "1") status = "full";
-		//	else status = "discharging";
-		//}
-
-		////? Get seconds to empty
-		//if (not is_in(status, "charging", "full")) {
-		//	if (b.use_energy and not b.power_now.empty()) {
-		//		try {
-		//			seconds = round((double)stoll(readfile(b.energy_now, "0")) / stoll(readfile(b.power_now, "1")) * 3600);
-		//		}
-		//		catch (const std::invalid_argument&) { }
-		//		catch (const std::out_of_range&) { }
-		//	}
-		//	if (seconds < 0 and fs::exists(b.base_dir / "time_to_empty")) {
-		//		try {
-		//			seconds = stoll(readfile(b.base_dir / "time_to_empty", "0")) * 60;
-		//		}
-		//		catch (const std::invalid_argument&) { }
-		//		catch (const std::out_of_range&) { }
-		//	}
-		//}
-
-		//return {percent, seconds, status};
-
-		return { 0, 0, "" };
+		return {percent, seconds, status};
 	}
 
 	auto collect(const bool no_update) -> cpu_info& {
 		if (Runner::stopping or (no_update and not current_cpu.cpu_percent.at("total").empty())) return current_cpu;
 		auto& cpu = current_cpu;
-
-		//if (has_gpu and Config::getB("show_gpu")) {
-		//	std::lock_guard lck(Cpu::SMImutex);
-		//	SMI_trigger();
-		//	gpu_clock = GpuRawStats.clock_mhz;
-		//	cpu.gpu_temp.push_back(GpuRawStats.temp);
-		//	if (cpu.gpu_temp.size() > 40) cpu.gpu_temp.pop_front();
-		//	cpu.cpu_percent.at("gpu").push_back(GpuRawStats.usage);
-		//	while (cmp_greater(cpu.cpu_percent.at("gpu").size(), width * 2)) cpu.cpu_percent.at("gpu").pop_front();
-		//}
 
 		if (has_OHMR) {
 			std::lock_guard lck(Cpu::OHMRmutex);
@@ -1390,7 +1282,6 @@ namespace Cpu {
 			times.push_back(std::accumulate(v.cbegin(), v.cend(), 0));
 			totals += times.back();
 		}
-		//totals = times.at(0) + times.at(1) + times.at(2) + times.at(3);
 		
 		
 		const long long calc_totals = max(1ll, totals - cpu_old.at("totals"));
@@ -1412,13 +1303,8 @@ namespace Cpu {
 			ii++;
 		}
 
-	//	if (Config::getB("check_temp") and got_sensors)
-	//		update_sensors();
-
-		has_battery = false;
-		//got_sensors = false;
-	//	if (Config::getB("show_battery") and has_battery)
-	//		current_bat = get_battery();
+		if (Config::getB("show_battery"))
+			current_bat = get_battery();
 
 		return cpu;
 	}
@@ -1875,9 +1761,11 @@ namespace Proc {
 	};
 
 	void proc_sorter(vector<proc_info>& proc_vec, string sorting, const bool reverse, const bool tree = false, const bool services = false) {
-		if (services and sorting == "service") sorting = "program";
-		else if (services and sorting == "caption") sorting = "command";
-		else if (services and sorting == "status") sorting = "user";
+		if (services) {
+			if (sorting == "service") sorting = "program";
+			else if (sorting == "caption") sorting = "command";
+			else if (sorting == "status") sorting = "user";
+		}
 		if (reverse) {
 			switch (v_index(sort_vector, sorting)) {
 			case 0: rng::stable_sort(proc_vec, rng::less{}, &proc_info::pid); 		break;
