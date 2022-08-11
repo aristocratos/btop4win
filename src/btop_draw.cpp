@@ -743,6 +743,7 @@ namespace Mem {
 		auto& tty_mode = Config::getB("tty_mode");
 		auto& graph_symbol = (tty_mode ? "tty" : Config::getS("graph_symbol_mem"));
 		auto& graph_bg = Symbols::graph_symbols.at((graph_symbol == "default" ? Config::getS("graph_symbol") + "_up" : graph_symbol + "_up")).at(6);
+		const bool show_gpu = (Cpu::has_gpu and Config::getB("show_gpu"));
 		string out;
 		out.reserve(height * width);
 
@@ -764,14 +765,19 @@ namespace Mem {
 				else
 					mem_meters[name] = Draw::Meter{ mem_meter, color };
 			}
-			
+
+			if (show_gpu) {
+				if (use_graphs)
+					mem_graphs["gpu_used"] = Draw::Graph{ mem_meter, graph_height, "cpu", mem.percent.at("gpu_used"), graph_symbol };
+				else
+					mem_meters["gpu_used"] = Draw::Meter{ mem_meter, "cpu" };
+			}
+
 			if (show_swap and has_swap) {
-				for (const string name : {"page_used", "page_free"}) {
-					if (use_graphs)
-						mem_graphs[name] = Draw::Graph{mem_meter, graph_height, name.substr(5), mem.percent.at(name), graph_symbol};
-					else
-						mem_meters[name] = Draw::Meter{mem_meter, name.substr(5)};
-				}
+				if (use_graphs)
+					mem_graphs["page_used"] = Draw::Graph{mem_meter, graph_height, "cpu", mem.percent.at("page_used"), graph_symbol};
+				else
+					mem_meters["page_used"] = Draw::Meter{mem_meter, "cpu"};
 			}
 
 			//? Disk meters and io graphs
@@ -841,7 +847,8 @@ namespace Mem {
 
 		out += Mv::to(y + 1, x + 2) + Theme::c("title") + Fx::b + "Total:" + rjust(floating_humanizer(Mem::totalMem), mem_width - 9) + Fx::ub + Theme::c("main_fg");
 		vector<string> comb_names = {"used", "available", "cached", "commit"};
-		if (show_swap and has_swap) comb_names.insert(comb_names.end(), { "page_used", "page_free" });
+		if (show_gpu) comb_names.insert(comb_names.end(), { "gpu_used" });
+		if (show_swap and has_swap) comb_names.insert(comb_names.end(), { "page_used" });
 		for (const auto& name : comb_names) {
 			if (cy > height - 4) break;
 			string title;
@@ -856,8 +863,17 @@ namespace Mem {
 				cy += 1;
 				title = "Used";
 			}
-			else if (name == "page_free")
-				title = "Free";
+			else if (name == "gpu_used") {
+				if (cy > height - 5) break;
+				if (cy > 0 and height - cy > 6) {
+					if (graph_height > 0) out += Mv::to(y + 1 + cy, x + 1 + cx) + divider;
+					cy += 1;
+				}
+				out += Mv::to(y + 1 + cy, x + 1 + cx) + Theme::c("title") + Fx::b + "GPU:"
+					+ rjust(floating_humanizer(mem.stats.at("gpu_total")), mem_width - 7) + Theme::c("main_fg") + Fx::ub;
+				cy += 1;
+				title = "Used";
+			}
 			else
 				title = capitalize(name);
 
@@ -1671,6 +1687,7 @@ namespace Draw {
 			using namespace Mem;
 			auto& show_disks = Config::getB("show_disks");
 			auto& mem_graphs = Config::getB("mem_graphs");
+			const bool has_gpu = (Cpu::has_gpu and Config::getB("show_gpu"));
 
 			width = round((double)Term::width * (Proc::shown ? width_p : 100) / 100);
 			height = ceil((double)Term::height * (100 - Cpu::height_p * Cpu::shown - Net::height_p * Net::shown) / 100) + 1;
@@ -1690,19 +1707,19 @@ namespace Draw {
 			else
 				mem_width = width - 1;
 
-			item_height = has_swap ? 6 : 4;
-			if (height - (has_swap ? 3 : 2) > 2 * item_height)
+			item_height = 4 + has_swap + has_gpu;
+			if (height - (2 + has_swap * 2 + has_gpu * 2) > 2 * item_height)
 				mem_size = 3;
 			else if (mem_width > 25)
 				mem_size = 2;
 			else
 				mem_size = 1;
 
-			mem_meter = max(0, mem_width - (mem_size > 2 ? 7 : 17));
+			mem_meter = max(0, mem_width - (mem_size > 2 ? 7 : 18));
 			if (mem_size == 1) mem_meter += 6;
 
 			if (mem_graphs) {
-				graph_height = max(1, (int)round((double)((height - (has_swap ? 2 : 1)) - (mem_size == 3 ? 2 : 1) * item_height) / item_height));
+				graph_height = max(1, (int)round((double)((height - (1 + has_swap * 2 + has_gpu * 2)) - (mem_size == 3 ? 2 : 1) * item_height) / item_height));
 				if (graph_height > 1) mem_meter += 6;
 			}
 			else

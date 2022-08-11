@@ -383,11 +383,11 @@ namespace Cpu {
 						}
 						//? Gpu mem used
 						else if (linevec.front().starts_with("GPU Memory Used")) {
-							gpus[gpu_name].mem_used = std::stoi(linevec.at(1));
+							gpus[gpu_name].mem_used = std::stoll(linevec.at(1)) << 20ll;
 						}
 						//? Gpu mem total
 						else if (linevec.front().starts_with("GPU Memory Total")) {
-							gpus[gpu_name].mem_total = std::stoi(linevec.at(1));
+							gpus[gpu_name].mem_total = std::stoll(linevec.at(1)) << 20ll;
 						}
 					}
 					else {
@@ -443,8 +443,8 @@ namespace Cpu {
 			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
 			//gpus[gname1].temp = rand() % 50 + 30;
 			//gpus[gname1].usage = rand() % 100;
-			//gpus[gname1].mem_total = 10240;
-			//gpus[gname1].mem_used = rand() % 5000 + 500;
+			//gpus[gname1].mem_total = 10240ll << 20ll;
+			//gpus[gname1].mem_used = rand() % 5000ll + 500ll << 20ll;
 
 			//gname1 = "AMD Radeon 5770";
 			//gpu_order.push_back(gname1);
@@ -505,6 +505,7 @@ namespace Cpu {
 	}
 
 	void OHMR_init() {
+		OHMR_trigger();
 		OHMR_collect();
 		if (not has_OHMR) return;
 
@@ -962,6 +963,17 @@ namespace Shared {
 
 		clkTck = 100;
 
+		init_status("Starting up Open Hardware Monitor");
+		//? Start up background thread for Open Hardware Monitor Report
+		if (Config::bools.at("enable_ohmr")) {
+			Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
+			Cpu::OHMR_init();
+			if (Cpu::has_OHMR) std::thread(Cpu::OHMR_collect).detach();
+		}
+		else {
+			Cpu::has_OHMR = false;
+		}
+
 		init_status("CPU Init");
 		//? Init for namespace Cpu
 		Cpu::current_cpu.core_percent.insert(Cpu::current_cpu.core_percent.begin(), Shared::coreCount, {});
@@ -974,26 +986,9 @@ namespace Shared {
 			if (not vec.empty()) Cpu::available_fields.push_back(field);
 		}
 		Cpu::cpuName = Cpu::get_cpuName();
-		
-		/*Cpu::got_sensors = Cpu::get_sensors();
-		for (const auto& [sensor, ignored] : Cpu::found_sensors) {
-			Cpu::available_sensors.push_back(sensor);
-		}
-		Cpu::core_mapping = Cpu::get_core_mapping();*/
 
 		//? Start up loadAVG counter in background
 		std::thread(Cpu::loadAVG_init).detach();
-
-		init_status("Starting up Open Hardware Monitor");
-		//? Start up background thread for Open Hardware Monitor Report
-		if (Config::bools.at("enable_ohmr")) {
-			Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
-			Cpu::OHMR_init();
-			if (Cpu::has_OHMR) std::thread(Cpu::OHMR_collect).detach();
-		}
-		else {
-			Cpu::has_OHMR = false;
-		}
 
 		init_status("MEM Init");
 		//? Init for namespace Mem
@@ -1455,22 +1450,28 @@ namespace Mem {
 		auto& show_disks = Config::getB("show_disks");
 		auto& mem = current_mem;
 
-		//if (Cpu::has_OHMR and Cpu::has_gpu) {
-		//	std::lock_guard lck(Cpu::OHMRmutex);
-		//	if (not Cpu::shown) Cpu::OHMR_trigger();
-		//}
-
-		//if (Cpu::has_gpu and Config::getB("show_gpu")) {
-		//	std::lock_guard lck(Cpu::SMImutex);
-		//	if (not Cpu::shown) Cpu::SMI_trigger();
-		//	mem.stats.at("gpu_total") = Cpu::GpuRawStats.mem_total;
-		//	mem.stats.at("gpu_used") = Cpu::GpuRawStats.mem_used;
-		//	mem.stats.at("gpu_free") = mem.stats.at("gpu_total") - mem.stats.at("gpu_used");
-		//	for (const auto name : { "gpu_used", "gpu_free" }) {
-		//		mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("gpu_total")));
-		//		while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
-		//	}
-		//}
+		if (Cpu::has_OHMR and Cpu::has_gpu and Config::getB("show_gpu")) {
+			std::lock_guard lck(Cpu::OHMRmutex);
+			if (not Cpu::shown) {
+				Cpu::OHMR_trigger();
+				if (Cpu::current_gpu != Config::getS("selected_gpu")) {
+					Cpu::current_gpu = Config::getS("selected_gpu");
+					if (Cpu::current_gpu != "Auto" and not Cpu::OHMRrawStats.GPUS.contains(Cpu::current_gpu)) {
+						Cpu::current_gpu = "Auto";
+						Config::set("selected_gpu", Cpu::current_gpu);
+					}
+					redraw = true;
+				}
+			}
+			const auto& gpu = Cpu::OHMRrawStats.GPUS.contains(Cpu::current_gpu) ? Cpu::OHMRrawStats.GPUS.at(Cpu::current_gpu) : Cpu::OHMRrawStats.GPUS.at(Config::available_gpus.at(1));
+			mem.stats.at("gpu_total") = gpu.mem_total;
+			mem.stats.at("gpu_used") = gpu.mem_used;
+			mem.stats.at("gpu_free") = mem.stats.at("gpu_total") - mem.stats.at("gpu_used");
+			for (const auto name : { "gpu_used", "gpu_free" }) {
+				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("gpu_total")));
+				while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();
+			}
+		}
 
 		MEMORYSTATUSEX memstat;
 		memstat.dwLength = sizeof(MEMORYSTATUSEX);
