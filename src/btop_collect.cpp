@@ -310,6 +310,7 @@ namespace Cpu {
 		return true;
 	}
 
+	//* Collects Cpu and Gpu information from Open Hardware Monitor Report btop-mod (https://github.com/aristocratos/openhardwaremonitor)
 	void OHMR_collect() {
 		static bool ohmr_init = true;
 		while (not Global::quitting and has_OHMR) {
@@ -399,8 +400,6 @@ namespace Cpu {
 						//? Cpu core and package temp
 						else if (linevec.back().starts_with(cur_id + "/temp")) {
 							if (linevec.front().starts_with("CPU Core")) {
-								//string cid = linevec.front().substr(linevec.front().rfind('#') + 1);
-								//while (not cid.empty() and std::stoi(cid) > cpu_temps.size() + (hasPackage ? 2 : 1)) cpu_temps.push_back(0);
 								cpu_temps.push_back(std::stoi(linevec.at(1)));
 							}
 							else if (not hasPackage and linevec.front().starts_with("CPU Package")) {
