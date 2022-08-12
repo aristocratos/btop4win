@@ -70,7 +70,7 @@ namespace Menu {
 	//* Enum for functions in vector menuFuncs
 	enum Menus {
 		SizeError,
-		SignalChoose,
+		/*SignalChoose,*/
 		SignalSend,
 		SignalReturn,
 		Options,
@@ -82,6 +82,6 @@ namespace Menu {
 	void process(string key="");
 
 	//* Show a menu from enum Menu::Menus
-	void show(int menu, int signal=-1);
+	void show(int menu);
 
 }

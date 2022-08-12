@@ -106,8 +106,6 @@ namespace Config {
 
 		{"proc_mem_bytes", 		"#* Show process memory as bytes instead of percent."},
 
-		{"proc_info_smaps",		"#* Use /proc/[pid]/smaps for memory information in the process info box (very slow but more accurate)"},
-
 		{"proc_left",			"#* Show proc box on left side of screen instead of right."},
 
 		{"cpu_graph_upper", 	"#* Sets the CPU stat shown in upper half of the CPU graph, \"total\" is always available.\n"
@@ -142,7 +140,7 @@ namespace Config {
 		{"custom_cpu_name", 	"#* Custom cpu model name, empty string to disable."},
 
 		{"disks_filter", 		"#* Optional filter for shown disks, should be full path of a mountpoint, separate multiple values with whitespace \" \".\n"
-								"#* Begin line with \"exclude=\" to change to exclude filter, otherwise defaults to \"most include\" filter. Example: disks_filter=\"exclude=/boot /home/user\"."},
+								"#* Begin line with \"exclude=\" to change to exclude filter, otherwise defaults to \"most include\" filter. Example: disks_filter=\"exclude=D:\\ E:\\\"."},
 
 		{"mem_graphs", 			"#* Show graphs instead of meters for memory values."},
 
@@ -194,7 +192,6 @@ namespace Config {
 		{"services_sorting", "cpu lazy"},
 		{"cpu_graph_upper", "total"},
 		{"cpu_graph_lower", "gpu"},
-		{"cpu_sensor", "Auto"},
 		{"selected_gpu", "Auto"},
 		{"temp_scale", "celsius"},
 		{"clock_format", "%X"},
@@ -221,7 +218,6 @@ namespace Config {
 		{"proc_gradient", true},
 		{"proc_per_core", false},
 		{"proc_mem_bytes", true},
-		{"proc_info_smaps", false},
 		{"proc_left", false},
 		{"cpu_invert_lower", true},
 		{"cpu_single_graph", false},

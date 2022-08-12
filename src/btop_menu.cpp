@@ -24,6 +24,13 @@ tab-size = 4
 #include <errno.h>
 #include <cmath>
 #include <filesystem>
+#define _WIN32_DCOM
+#define _WIN32_WINNT 0x0600
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <windows.h>
+#include <processthreadsapi.h>
 
 #include <btop_menu.hpp>
 #include <btop_tools.hpp>
@@ -44,7 +51,6 @@ namespace Menu {
    bool redraw = true;
    int currentMenu = -1;
    msgBox messageBox;
-   int signalToSend = 0;
    int signalKillRet = 0;
 
    const array<string, 32> P_Signals = {
@@ -354,13 +360,6 @@ namespace Menu {
 				"Enable cpu temperature reporting.",
 				"",
 				"True or False."},
-			{"cpu_sensor",
-				"Cpu temperature sensor",
-				"",
-				"Select the sensor that corresponds to",
-				"your cpu temperature.",
-				"",
-				"Set to \"Auto\" for auto detection."},
 			{"show_coretemp",
 				"Show temperatures for cpu cores.",
 				"",
@@ -457,7 +456,7 @@ namespace Menu {
 				"",
 				"True or False."},
 			{"disk_free_priv",
-				"(Linux) Type of available disk space.",
+				"Type of available disk space.",
 				"",
 				"Set to true to show how much disk space is",
 				"available for privileged users.",
@@ -476,7 +475,7 @@ namespace Menu {
 				"Oterwise defaults to \"most include\" filter.",
 				"",
 				"Example:",
-				"\"exclude=/boot /home/user\""},
+				"\"exclude=D:\\ E:\\\""},
 		},
 		{
 			{"graph_symbol_net",
@@ -688,110 +687,110 @@ namespace Menu {
 		Switch
 	};
 
-	int signalChoose(const string& key) {
-		auto& s_pid = (Config::getB("show_detailed") and Config::getI("selected_pid") == 0 ? Config::getI("detailed_pid") : Config::getI("selected_pid"));
-		static int x = 0, y = 0, selected_signal = -1;
-		if (bg.empty()) selected_signal = -1;
-		auto& out = Global::overlay;
-		int retval = Changed;
+	//int signalChoose(const string& key) {
+	//	auto& s_pid = (Config::getB("show_detailed") and Config::getI("selected_pid") == 0 ? Config::getI("detailed_pid") : Config::getI("selected_pid"));
+	//	static int x = 0, y = 0, selected_signal = -1;
+	//	if (bg.empty()) selected_signal = -1;
+	//	auto& out = Global::overlay;
+	//	int retval = Changed;
 
-		if (redraw) {
-			x = Term::width/2 - 40;
-			y = Term::height/2 - 9;
-			bg = Draw::createBox(x + 2, y, 78, 19, Theme::c("hi_fg"), true, "signals");
-			bg += Mv::to(y+2, x+3) + Theme::c("title") + Fx::b + cjust("Send signal to PID " + to_string(s_pid) + " ("
-				+ uresize((s_pid == Config::getI("detailed_pid") ? Proc::detailed.entry.name : Config::getS("selected_name")), 30) + ")", 76);
-		}
-		else if (is_in(key, "escape", "q")) {
-			return Closed;
-		}
-		else if (key.starts_with("button_")) {
-			if (int new_select = stoi(key.substr(7)); new_select == selected_signal)
-				goto ChooseEntering;
-			else
-				selected_signal = new_select;
-		}
-		else if (is_in(key, "enter", "space") and selected_signal >= 0) {
-			ChooseEntering:
-			signalKillRet = 0;
-			if (s_pid < 1) {
-				signalKillRet = ESRCH;
-				menuMask.set(SignalReturn);
-			}
-			/*else if (kill(s_pid, selected_signal) != 0) {
-				signalKillRet = errno;
-				menuMask.set(SignalReturn);
-			}*/
-			return Closed;
-		}
-		else if (key.size() == 1 and isdigit(key.at(0)) and selected_signal < 10) {
-			selected_signal = std::min(std::stoi((selected_signal < 1 ? key : to_string(selected_signal) + key)), 64);
-		}
-		else if (key == "backspace" and selected_signal != -1) {
-			selected_signal = (selected_signal < 10 ? -1 : selected_signal / 10);
-		}
-		else if (is_in(key, "up", "k") and selected_signal != 16) {
-			if (selected_signal == 1) selected_signal = 31;
-			else if (selected_signal < 6) selected_signal += 25;
-			else {
-				bool offset = (selected_signal > 16);
-				selected_signal -= 5;
-				if (selected_signal <= 16 and offset) selected_signal--;
-			}
-		}
-		else if (is_in(key, "down", "j")) {
-			if (selected_signal == 31) selected_signal = 1;
-			else if (selected_signal < 1 or selected_signal == 16) selected_signal = 1;
-			else if (selected_signal > 26) selected_signal -= 25;
-			else {
-				bool offset = (selected_signal < 16);
-				selected_signal += 5;
-				if (selected_signal >= 16 and offset) selected_signal++;
-				if (selected_signal > 31) selected_signal = 31;
-			}
-		}
-		else if (is_in(key, "left", "h") and selected_signal > 0 and selected_signal != 16) {
-			if (--selected_signal < 1) selected_signal = 31;
-			else if (selected_signal == 16) selected_signal--;
-		}
-		else if (is_in(key, "right", "l") and selected_signal <= 31 and selected_signal != 16) {
-			if (++selected_signal > 31) selected_signal = 1;
-			else if (selected_signal == 16) selected_signal++;
-		}
-		else {
-			retval = NoChange;
-		}
+	//	if (redraw) {
+	//		x = Term::width/2 - 40;
+	//		y = Term::height/2 - 9;
+	//		bg = Draw::createBox(x + 2, y, 78, 19, Theme::c("hi_fg"), true, "signals");
+	//		bg += Mv::to(y+2, x+3) + Theme::c("title") + Fx::b + cjust("Send signal to PID " + to_string(s_pid) + " ("
+	//			+ uresize((s_pid == Config::getI("detailed_pid") ? Proc::detailed.entry.name : Config::getS("selected_name")), 30) + ")", 76);
+	//	}
+	//	else if (is_in(key, "escape", "q")) {
+	//		return Closed;
+	//	}
+	//	else if (key.starts_with("button_")) {
+	//		if (int new_select = stoi(key.substr(7)); new_select == selected_signal)
+	//			goto ChooseEntering;
+	//		else
+	//			selected_signal = new_select;
+	//	}
+	//	else if (is_in(key, "enter", "space") and selected_signal >= 0) {
+	//		ChooseEntering:
+	//		signalKillRet = 0;
+	//		if (s_pid < 1) {
+	//			signalKillRet = ESRCH;
+	//			menuMask.set(SignalReturn);
+	//		}
+	//		/*else if (kill(s_pid, selected_signal) != 0) {
+	//			signalKillRet = errno;
+	//			menuMask.set(SignalReturn);
+	//		}*/
+	//		return Closed;
+	//	}
+	//	else if (key.size() == 1 and isdigit(key.at(0)) and selected_signal < 10) {
+	//		selected_signal = std::min(std::stoi((selected_signal < 1 ? key : to_string(selected_signal) + key)), 64);
+	//	}
+	//	else if (key == "backspace" and selected_signal != -1) {
+	//		selected_signal = (selected_signal < 10 ? -1 : selected_signal / 10);
+	//	}
+	//	else if (is_in(key, "up", "k") and selected_signal != 16) {
+	//		if (selected_signal == 1) selected_signal = 31;
+	//		else if (selected_signal < 6) selected_signal += 25;
+	//		else {
+	//			bool offset = (selected_signal > 16);
+	//			selected_signal -= 5;
+	//			if (selected_signal <= 16 and offset) selected_signal--;
+	//		}
+	//	}
+	//	else if (is_in(key, "down", "j")) {
+	//		if (selected_signal == 31) selected_signal = 1;
+	//		else if (selected_signal < 1 or selected_signal == 16) selected_signal = 1;
+	//		else if (selected_signal > 26) selected_signal -= 25;
+	//		else {
+	//			bool offset = (selected_signal < 16);
+	//			selected_signal += 5;
+	//			if (selected_signal >= 16 and offset) selected_signal++;
+	//			if (selected_signal > 31) selected_signal = 31;
+	//		}
+	//	}
+	//	else if (is_in(key, "left", "h") and selected_signal > 0 and selected_signal != 16) {
+	//		if (--selected_signal < 1) selected_signal = 31;
+	//		else if (selected_signal == 16) selected_signal--;
+	//	}
+	//	else if (is_in(key, "right", "l") and selected_signal <= 31 and selected_signal != 16) {
+	//		if (++selected_signal > 31) selected_signal = 1;
+	//		else if (selected_signal == 16) selected_signal++;
+	//	}
+	//	else {
+	//		retval = NoChange;
+	//	}
 
-		if (retval == Changed) {
-			int cy = y+4, cx = x+4;
-			out = bg + Mv::to(cy++, x+3) + Theme::c("main_fg") + Fx::ub
-				+ rjust("Enter signal number: ", 48) + Theme::c("hi_fg") + (selected_signal >= 0 ? to_string(selected_signal) : "") + Theme::c("main_fg") + Fx::bl + "█" + Fx::ubl;
+	//	if (retval == Changed) {
+	//		int cy = y+4, cx = x+4;
+	//		out = bg + Mv::to(cy++, x+3) + Theme::c("main_fg") + Fx::ub
+	//			+ rjust("Enter signal number: ", 48) + Theme::c("hi_fg") + (selected_signal >= 0 ? to_string(selected_signal) : "") + Theme::c("main_fg") + Fx::bl + "█" + Fx::ubl;
 
-			auto sig_str = to_string(selected_signal);
-			for (int count = 0, i = 0; const auto& sig : P_Signals) {
-				if (count == 0 or count == 16) { count++; continue; }
-				if (i++ % 5 == 0) { ++cy; cx = x+4; }
-				out += Mv::to(cy, cx);
-				if (count == selected_signal) out += Theme::c("selected_bg") + Theme::c("selected_fg") + Fx::b + ljust(to_string(count), 3) + ljust('(' + sig + ')', 12) + Fx::reset;
-				else out += Theme::c("hi_fg") + ljust(to_string(count), 3) + Theme::c("main_fg") + ljust('(' + sig + ')', 12);
-				if (redraw) mouse_mappings["button_" + to_string(count)] = {cy, cx, 1, 15};
-				count++;
-				cx += 15;
-			}
+	//		auto sig_str = to_string(selected_signal);
+	//		for (int count = 0, i = 0; const auto& sig : P_Signals) {
+	//			if (count == 0 or count == 16) { count++; continue; }
+	//			if (i++ % 5 == 0) { ++cy; cx = x+4; }
+	//			out += Mv::to(cy, cx);
+	//			if (count == selected_signal) out += Theme::c("selected_bg") + Theme::c("selected_fg") + Fx::b + ljust(to_string(count), 3) + ljust('(' + sig + ')', 12) + Fx::reset;
+	//			else out += Theme::c("hi_fg") + ljust(to_string(count), 3) + Theme::c("main_fg") + ljust('(' + sig + ')', 12);
+	//			if (redraw) mouse_mappings["button_" + to_string(count)] = {cy, cx, 1, 15};
+	//			count++;
+	//			cx += 15;
+	//		}
 
-			cy++;
-			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust( "↑ ↓ ← →", 33, true) + Theme::c("main_fg") + Fx::ub + " | To choose signal.";
-			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("0-9", 33) + Theme::c("main_fg") + Fx::ub + " | Enter manually.";
-			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ENTER", 33) + Theme::c("main_fg") + Fx::ub + " | To send signal.";
-			mouse_mappings["enter"] = {cy, x, 1, 73};
-			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ESC or \"q\"", 33) + Theme::c("main_fg") + Fx::ub + " | To abort.";
-			mouse_mappings["escape"] = {cy, x, 1, 73};
+	//		cy++;
+	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust( "↑ ↓ ← →", 33, true) + Theme::c("main_fg") + Fx::ub + " | To choose signal.";
+	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("0-9", 33) + Theme::c("main_fg") + Fx::ub + " | Enter manually.";
+	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ENTER", 33) + Theme::c("main_fg") + Fx::ub + " | To send signal.";
+	//		mouse_mappings["enter"] = {cy, x, 1, 73};
+	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ESC or \"q\"", 33) + Theme::c("main_fg") + Fx::ub + " | To abort.";
+	//		mouse_mappings["escape"] = {cy, x, 1, 73};
 
-			out += Fx::reset;
-		}
+	//		out += Fx::reset;
+	//	}
 
-		return (redraw ? Changed : retval);
-	}
+	//	return (redraw ? Changed : retval);
+	//}
 
 	int sizeError(const string& key) {
 		if (redraw) {
@@ -822,22 +821,20 @@ namespace Menu {
 			atomic_wait(Runner::active);
 			auto& p_name = (s_pid == Config::getI("detailed_pid") ? Proc::detailed.entry.name : Config::getS("selected_name"));
 			vector<string> cont_vec = {
-				Fx::b + Theme::c("main_fg") + "Send signal: " + Fx::ub + Theme::c("hi_fg") + to_string(signalToSend)
-				+ (signalToSend > 0 and signalToSend <= 32 ? Theme::c("main_fg") + " (" + P_Signals.at(signalToSend) + ')' : ""),
-
-				Fx::b + Theme::c("main_fg") + "To PID: " + Fx::ub + Theme::c("hi_fg") + to_string(s_pid) + Theme::c("main_fg") + " ("
+				Fx::b + Theme::c("main_fg") + "Terminate PID: " + Fx::ub + Theme::c("hi_fg") + to_string(s_pid) + Theme::c("main_fg") + " ("
 				+ uresize(p_name, 16) + ')' + Fx::reset,
 			};
-			messageBox = Menu::msgBox{50, 1, cont_vec, (signalToSend > 1 and signalToSend <= 32 and signalToSend != 17 ? P_Signals.at(signalToSend) : "signal")};
+			messageBox = Menu::msgBox{50, 1, cont_vec, "terminate"};
 			Global::overlay = messageBox();
 		}
 		auto ret = messageBox.input(key);
 		if (ret == msgBox::Ok_Yes) {
 			signalKillRet = 0;
-			/*if (kill(s_pid, signalToSend) != 0) {
-				signalKillRet = errno;
+			const auto p = OpenProcess(PROCESS_TERMINATE, false, s_pid);
+			if (TerminateProcess(p, 1) == 0) {
+				signalKillRet = GetLastError();
 				menuMask.set(SignalReturn);
-			}*/
+			}
 			messageBox.clear();
 			return Closed;
 		}
@@ -859,14 +856,8 @@ namespace Menu {
 		if (redraw) {
 			vector<string> cont_vec;
 			cont_vec.push_back(Fx::b + Theme::g("used")[100] + "Failure:" + Theme::c("main_fg") + Fx::ub);
-			if (signalKillRet == EINVAL) {
-				cont_vec.push_back("Unsupported signal!" + Fx::reset);
-			}
-			else if (signalKillRet == EPERM) {
-				cont_vec.push_back("Insufficient permissions to send signal!" + Fx::reset);
-			}
-			else if (signalKillRet == ESRCH) {
-				cont_vec.push_back("Process not found!" + Fx::reset);
+			if (signalKillRet == ERROR_ACCESS_DENIED or signalKillRet == ERROR_INVALID_HANDLE) {
+				cont_vec.push_back("Access denied or process already terminated!" + Fx::reset);
 			}
 			else {
 				cont_vec.push_back("Unknown error! (errno: " + to_string(signalKillRet) + ')' + Fx::reset);
@@ -1344,7 +1335,7 @@ namespace Menu {
 	//* Add menus here and update enum Menus in header
 	const auto menuFunc = vector{
 		ref(sizeError),
-		ref(signalChoose),
+		/*ref(signalChoose),*/
 		ref(signalSend),
 		ref(signalReturn),
 		ref(optionsMenu),
@@ -1370,7 +1361,7 @@ namespace Menu {
 		if (currentMenu < 0 or not menuMask.test(currentMenu)) {
 			Menu::active = true;
 			redraw = true;
-			if (((menuMask.test(Main) or menuMask.test(Options) or menuMask.test(Help) or menuMask.test(SignalChoose))
+			if (((menuMask.test(Main) or menuMask.test(Options) or menuMask.test(Help) /*or menuMask.test(SignalChoose)*/)
 			and (Term::width < 80 or Term::height < 24))
 			or (Term::width < 50 or Term::height < 20)) {
 				menuMask.reset();
@@ -1406,9 +1397,8 @@ namespace Menu {
 		}
 	}
 
-	void show(int menu, int signal) {
+	void show(int menu) {
 		menuMask.set(menu);
-		signalToSend = signal;
 		process();
 	}
 }
