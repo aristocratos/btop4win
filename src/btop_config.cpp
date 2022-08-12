@@ -64,7 +64,7 @@ namespace Config {
 
 		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Needs Open Hardware Monitor Report enabled."},
 
-		{"selected_gpu"			"#* Which GPU to display if multiple is detected."},
+		{"selected_gpu",		"#* Which GPU to display if multiple is detected."},
 
 		{"rounded_corners",		"#* Rounded corners on boxes, is ignored if TTY mode is ON."},
 

@@ -64,7 +64,7 @@ Notes:
 
 The default symbols for graphs are set to TTY for best compatibility with Windows fonts, for braille and block symbols get custom fonts.
 
-See [Terminess Powerline](https://github.com/ryanoasis/nerd-fonts/tree/master/patched-fonts/Terminus/terminus-ttf-4.40.1) for a font that includes the braille symbols.
+See [Cascadia Code](https://github.com/microsoft/cascadia-code) for a font that includes the braille symbols.
 
 ## Features
 

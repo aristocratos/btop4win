@@ -392,7 +392,7 @@ namespace Cpu {
 						}
 					}
 					else {
-						//? Cpu clock
+						//? Cpu clock - using highest found value because an average of all cores doesn't do well on systems with efficiency cores
 						if (linevec.back().starts_with(cur_id + "/clock") and linevec.front().starts_with("CPU Core")) {
 							int clock = std::stoi(linevec.at(1));
 							if (clock > cpu_clock) cpu_clock = clock;
@@ -433,8 +433,6 @@ namespace Cpu {
 				else if (mb_system > 0)
 					cpu_temps.insert(cpu_temps.begin(), mb_system);
 			}
-
-			
 
 			//! For testing purposes on system without dedicated GPU
 			//string gname1 = "Nvidia RTX 3080";
@@ -1145,9 +1143,12 @@ namespace Cpu {
 
 		SYSTEM_POWER_STATUS pwr;
 		if (GetSystemPowerStatus(&pwr)) {
-			if (int stat = static_cast<int>(pwr.BatteryFlag); stat <= 8) {
+			if (int stat = static_cast<int>(pwr.BatteryFlag); stat <= 9) {
 				has_battery = true;
-				status = (stat == 8 ? "charging" : "discharging");
+				if (stat == 9) status = "charging";
+				else if (static_cast<int>(pwr.ACLineStatus) == 1) status = "full";
+				else if (stat < 9) status = "discharging";
+
 				percent = static_cast<int>(pwr.BatteryLifePercent);
 				if (percent > 100)
 					percent = -1;
