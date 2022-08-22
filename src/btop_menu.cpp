@@ -830,8 +830,8 @@ namespace Menu {
 		auto ret = messageBox.input(key);
 		if (ret == msgBox::Ok_Yes) {
 			signalKillRet = 0;
-			const auto p = OpenProcess(PROCESS_TERMINATE, false, s_pid);
-			if (TerminateProcess(p, 1) == 0) {
+			HandleWrapper p = OpenProcess(PROCESS_TERMINATE, false, s_pid);
+			if (TerminateProcess(p(), 1) == 0) {
 				signalKillRet = GetLastError();
 				menuMask.set(SignalReturn);
 			}

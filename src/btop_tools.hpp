@@ -29,6 +29,10 @@ tab-size = 4
 #include <thread>
 #include <tuple>
 #include <limits.h>
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <windows.h>
 
 using std::string, std::vector, std::atomic, std::to_string, std::tuple, std::array;
 
@@ -132,6 +136,32 @@ namespace Term {
 
 	//* Restore terminal options
 	void restore();
+}
+
+namespace Tools {
+	class HandleWrapper {
+	public:
+		HANDLE wHandle;
+		bool valid = false;
+		HandleWrapper();
+		HandleWrapper(HANDLE nHandle);
+		HANDLE operator()();
+		~HandleWrapper();
+	};
+
+	class ServiceHandleWrapper {
+	public:
+		SC_HANDLE wHandle;
+		bool valid = false;
+		ServiceHandleWrapper();
+		ServiceHandleWrapper(SC_HANDLE nHandle);
+		SC_HANDLE operator()();
+		~ServiceHandleWrapper();
+	};
+
+	enum ServiceCommands { SCstart = 0, SCstop = 1 };
+
+	DWORD ServiceCommand(string name, ServiceCommands command);
 }
 
 //? --------------------------------------------------- FUNCTIONS -----------------------------------------------------

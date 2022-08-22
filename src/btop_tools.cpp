@@ -34,6 +34,7 @@ tab-size = 4
 #include <windows.h>
 #include <comutil.h>
 #include <winsock.h>
+#include <comdef.h>
 
 #include <btop_shared.hpp>
 #include <btop_tools.hpp>
@@ -148,6 +149,97 @@ namespace Term {
 //? --------------------------------------------------- FUNCTIONS -----------------------------------------------------
 
 namespace Tools {
+
+	HandleWrapper::HandleWrapper() : wHandle(nullptr) { ; }
+	HandleWrapper::HandleWrapper(HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE); }
+	HANDLE HandleWrapper::operator()() { return wHandle; }
+	HandleWrapper::~HandleWrapper() { if (wHandle != nullptr) CloseHandle(wHandle); }
+
+	ServiceHandleWrapper::ServiceHandleWrapper() : wHandle(nullptr) { ; }
+	ServiceHandleWrapper::ServiceHandleWrapper(SC_HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE); }
+	SC_HANDLE ServiceHandleWrapper::operator()() { return wHandle; }
+	ServiceHandleWrapper::~ServiceHandleWrapper() { if (wHandle != nullptr) CloseServiceHandle(wHandle); }
+
+	DWORD ServiceCommand(string name, ServiceCommands command) {
+		//? Open handle to service manager
+		ServiceHandleWrapper SCmanager(OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS));
+		if (not SCmanager.valid) {
+			throw std::runtime_error("Tools::ServiceCommand(): OpenSCManager() failed with error code: " + to_string(GetLastError()));
+		}
+
+		//? Open handle to service
+		ServiceHandleWrapper SCitem(OpenService(SCmanager(), _bstr_t(name.c_str()), SERVICE_ALL_ACCESS));
+		if (not SCitem.valid) {
+			throw std::runtime_error("Tools::ServiceCommand(): OpenService() failed with error code: " + to_string(GetLastError()));
+		}
+
+		SERVICE_STATUS_PROCESS itemStat;
+		DWORD BytesNeeded;
+
+		//? Get service status
+		if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
+			throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
+		}
+
+		DWORD DesiredState = (command == SCstart ? SERVICE_RUNNING : SERVICE_STOPPED);
+
+		//? Check if service is already in the desired state
+		if (itemStat.dwCurrentState == DesiredState) {
+			return ERROR_INVALID_FUNCTION;
+		}
+
+		//? Start/stop the service
+		if (command == SCstart) {
+			if (not StartService(SCitem(), 0, NULL)) {
+				return GetLastError();
+			}
+		}
+		else if (command == SCstop) {
+			SERVICE_STATUS scStat;
+			if (not ControlService(SCitem(), SERVICE_CONTROL_STOP, &scStat)) {
+				return GetLastError();
+			}
+		}
+
+		//? Get service status
+		if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
+			throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
+		}
+
+		DWORD WAIT_ON = (command == SCstart ? SERVICE_START_PENDING : SERVICE_STOP_PENDING);
+		DWORD StartTickCount = GetTickCount();
+		DWORD OrgStartTickCount = StartTickCount;
+		DWORD OldCheckPoint = itemStat.dwCheckPoint;
+		DWORD WaitTime;
+
+		//? Wait for service to start/stop for max 10 seconds
+		while (itemStat.dwCurrentState == WAIT_ON) {
+
+			WaitTime = itemStat.dwWaitHint / 10;
+
+			if (WaitTime < 100) WaitTime = 100;
+			else if (WaitTime > 1000) WaitTime = 1000;
+
+			Sleep(WaitTime);
+
+			//? Get service status
+			if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
+				throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
+			}
+
+			if (DWORD TickNow = GetTickCount(); itemStat.dwCheckPoint > OldCheckPoint) {
+				StartTickCount = TickNow;
+				OldCheckPoint = itemStat.dwCheckPoint;
+			}
+			else if (TickNow - StartTickCount > itemStat.dwWaitHint or TickNow - OrgStartTickCount > 10000) {
+				break;
+			}
+				
+		}
+
+		if (itemStat.dwCurrentState != DesiredState) return WAIT_TIMEOUT;
+		return ERROR_SUCCESS;
+	}
 
 	size_t wide_ulen(const string& str) {
 		unsigned int chars = 0;

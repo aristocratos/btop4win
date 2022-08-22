@@ -72,16 +72,6 @@ using namespace Tools;
 //? --------------------------------------------------- FUNCTIONS -----------------------------------------------------
 
 namespace Tools {
-	class HandleWrapper {
-	public:
-		HANDLE wHandle;
-		bool valid = false;
-		HandleWrapper() : wHandle(nullptr) { ; }
-		HandleWrapper(HANDLE nHandle) : wHandle(nHandle) { valid = (wHandle != INVALID_HANDLE_VALUE); }
-		auto operator()() { return wHandle; }
-		~HandleWrapper() { if (wHandle != nullptr) CloseHandle(wHandle); }
-	};
-
 	//! Set security mode for better chance of collecting process information
 	//! Based on code from psutil
 	//! See: https://github.com/giampaolo/psutil/blob/master/psutil/arch/windows/security.c
