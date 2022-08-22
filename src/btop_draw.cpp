@@ -1261,6 +1261,10 @@ namespace Proc {
 						if (alive and selected == 0) Input::mouse_mappings["u"] = { d_y, mouse_x, 1, 8 };
 						mouse_x += 10;
 					}
+					
+					out += Fx::ub + title_left + Fx::b + hi_color + 's' + t_color + "tarttype" + Fx::ub + title_right;
+					if (selected == 0) Input::mouse_mappings["s"] = { d_y, mouse_x, 1, 9 };
+					mouse_x += 11;
 				}
 				else {
 					out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;

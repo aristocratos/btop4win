@@ -181,38 +181,67 @@ namespace Tools {
 			throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
 		}
 
-		DWORD DesiredState = (command == SCstart ? SERVICE_RUNNING : SERVICE_STOPPED);
+		DWORD DesiredState = NULL;
+		DWORD WAIT_ON;
+		DWORD ControlCommand;
 
-		//? Check if service is already in the desired state
-		if (itemStat.dwCurrentState == DesiredState) {
+		if (command == SCstart) {
+			DesiredState = SERVICE_RUNNING;
+			WAIT_ON = SERVICE_START_PENDING;
+		}
+		else if (command == SCstop) {
+			DesiredState = SERVICE_STOPPED;
+			ControlCommand = SERVICE_CONTROL_STOP;
+			WAIT_ON = SERVICE_STOP_PENDING;
+		}
+		else if (command == SCcontinue) {
+			DesiredState = SERVICE_RUNNING;
+			ControlCommand = SERVICE_CONTROL_CONTINUE;
+			WAIT_ON = SERVICE_CONTINUE_PENDING;
+		}
+		else if (command == SCpause) {
+			DesiredState = SERVICE_PAUSED;
+			ControlCommand = SERVICE_CONTROL_PAUSE;
+			WAIT_ON = SERVICE_PAUSE_PENDING;
+		}
+		else if (command == SCchange) {
+			ControlCommand == SERVICE_CONTROL_PARAMCHANGE;
+		}
+		else {
 			return ERROR_INVALID_FUNCTION;
 		}
 
-		//? Start/stop the service
+		//? Check if service is already in the desired state
+		if (DesiredState != NULL and itemStat.dwCurrentState == DesiredState) {
+			return ERROR_INVALID_FUNCTION;
+		}
+
+		//? Send command to service
 		if (command == SCstart) {
 			if (not StartService(SCitem(), 0, NULL)) {
 				return GetLastError();
 			}
 		}
-		else if (command == SCstop) {
+		else {
 			SERVICE_STATUS scStat;
-			if (not ControlService(SCitem(), SERVICE_CONTROL_STOP, &scStat)) {
+			if (not ControlService(SCitem(), ControlCommand, &scStat)) {
 				return GetLastError();
 			}
 		}
+
+		if (command == SCchange) return ERROR_SUCCESS;
 
 		//? Get service status
 		if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
 			throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
 		}
-
-		DWORD WAIT_ON = (command == SCstart ? SERVICE_START_PENDING : SERVICE_STOP_PENDING);
-		DWORD StartTickCount = GetTickCount();
+		
+		DWORD StartTickCount = GetTickCount64();
 		DWORD OrgStartTickCount = StartTickCount;
 		DWORD OldCheckPoint = itemStat.dwCheckPoint;
 		DWORD WaitTime;
 
-		//? Wait for service to start/stop for max 10 seconds
+		//? Wait for service to respond for max 10 seconds
 		while (itemStat.dwCurrentState == WAIT_ON) {
 
 			WaitTime = itemStat.dwWaitHint / 10;
@@ -227,7 +256,7 @@ namespace Tools {
 				throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
 			}
 
-			if (DWORD TickNow = GetTickCount(); itemStat.dwCheckPoint > OldCheckPoint) {
+			if (DWORD TickNow = GetTickCount64(); itemStat.dwCheckPoint > OldCheckPoint) {
 				StartTickCount = TickNow;
 				OldCheckPoint = itemStat.dwCheckPoint;
 			}
@@ -239,6 +268,10 @@ namespace Tools {
 
 		if (itemStat.dwCurrentState != DesiredState) return WAIT_TIMEOUT;
 		return ERROR_SUCCESS;
+	}
+
+	auto ServiceGetConfig(string name)->std::tuple<DWORD, DWORD, DWORD> {
+		return { 0, 0, 0 };
 	}
 
 	size_t wide_ulen(const string& str) {

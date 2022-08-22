@@ -2276,9 +2276,9 @@ namespace Proc {
 			for (auto& p : out_vec) {
 				if (not tree and not filter.empty()) {
 						if (not s_contains(to_string(p.pid), filter)
-						and not s_contains(p.name, filter)
-						and not s_contains(p.cmd, filter)
-						and not s_contains(p.user, filter)) {
+						and not s_contains_ic(p.name, filter)
+						and not s_contains_ic(p.cmd, filter)
+						and not s_contains_ic(p.user, filter)) {
 							p.filtered = true;
 							filter_found++;
 							}
