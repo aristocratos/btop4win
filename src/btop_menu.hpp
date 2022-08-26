@@ -72,6 +72,7 @@ namespace Menu {
 		SizeError,
 		/*SignalChoose,*/
 		SignalSend,
+		SignalPause,
 		SignalReturn,
 		Options,
 		Help,

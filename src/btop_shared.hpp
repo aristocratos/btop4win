@@ -205,6 +205,7 @@ namespace Proc {
 	extern atomic<int> detailed_pid;
 	extern int selected_pid, start, selected, collapse, expand, selected_depth;
 	extern string selected_name;
+	extern string selected_status;
 	extern atomic<uint64_t> WMItimer;
 	extern bool services_swap;
 

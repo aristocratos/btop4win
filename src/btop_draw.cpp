@@ -1092,6 +1092,7 @@ namespace Proc {
 	bool shown = true, redraw = true;
 	int selected_pid = 0, selected_depth = 0;
 	string selected_name;
+	string selected_status;
 	unordered_flat_map<size_t, Draw::Graph> p_graphs;
 	unordered_flat_map<size_t, bool> p_wide_cmd;
 	unordered_flat_map<size_t, int> p_counters;
@@ -1240,7 +1241,7 @@ namespace Proc {
 				int mouse_x = d_x + 2;
 				out += Mv::to(d_y, d_x + 1);
 				if (services) {
-					if (detailed.can_stop and detailed.status == "Running") {
+					if (detailed.can_stop and detailed.status != "Stopped") {
 						out += Fx::ub + title_left + Fx::b + t_color + 's' + hi_color + 't' + t_color + "op" + Fx::ub + title_right;
 						if (alive and selected == 0) Input::mouse_mappings["t"] = { d_y, mouse_x, 1, 4 };
 						mouse_x += 6;
@@ -1262,9 +1263,9 @@ namespace Proc {
 						mouse_x += 10;
 					}
 					
-					out += Fx::ub + title_left + Fx::b + hi_color + 's' + t_color + "tarttype" + Fx::ub + title_right;
-					if (selected == 0) Input::mouse_mappings["s"] = { d_y, mouse_x, 1, 9 };
-					mouse_x += 11;
+					out += Fx::ub + title_left + Fx::b + hi_color + 'S' + t_color + "tart-type" + Fx::ub + title_right;
+					if (selected == 0) Input::mouse_mappings["s"] = { d_y, mouse_x, 1, 10 };
+					mouse_x += 12;
 				}
 				else {
 					out += Fx::ub + title_left + hi_color + Fx::b + 't' + t_color + "erminate" + Fx::ub + title_right;
@@ -1460,6 +1461,7 @@ namespace Proc {
 				selected_pid = (int)p.pid;
 				selected_name = p.name;
 				selected_depth = p.depth;
+				if (services) selected_status = p.user;
 			}
 
 			//? Update graphs for processes with above 0.0% cpu usage, delete if below 0.1% 10x times
@@ -1603,9 +1605,10 @@ namespace Proc {
 			p_wide_cmd.compact();
 		}
 
-		if (selected == 0 and selected_pid != 0) {
+		if (selected == 0 and (selected_pid != 0 or not selected_name.empty())) {
 			selected_pid = 0;
 			selected_name.clear();
+			selected_status.clear();
 		}
 		redraw = false;
 		return out + Fx::reset;

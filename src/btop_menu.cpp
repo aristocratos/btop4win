@@ -816,24 +816,45 @@ namespace Menu {
 
 	int signalSend(const string& key) {
 		auto& s_pid = (Config::getB("show_detailed") and Config::getI("selected_pid") == 0 ? Config::getI("detailed_pid") : Config::getI("selected_pid"));
-		if (s_pid == 0) return Closed;
+		const bool service = Config::getB("proc_services");
+		auto& p_name = (Config::getB("show_detailed") ? Proc::detailed.entry.name : Config::getS("selected_name"));
+		bool running = service and (Config::getB("show_detailed") ? Proc::detailed.status : Config::getS("selected_status")) != "Stopped";
+		if (not service and s_pid == 0) return Closed;
 		if (redraw) {
 			atomic_wait(Runner::active);
-			auto& p_name = (s_pid == Config::getI("detailed_pid") ? Proc::detailed.entry.name : Config::getS("selected_name"));
-			vector<string> cont_vec = {
-				Fx::b + Theme::c("main_fg") + "Terminate PID: " + Fx::ub + Theme::c("hi_fg") + to_string(s_pid) + Theme::c("main_fg") + " ("
-				+ uresize(p_name, 16) + ')' + Fx::reset,
-			};
-			messageBox = Menu::msgBox{50, 1, cont_vec, "terminate"};
+			vector<string> cont_vec;
+			if (service) {
+				string action = running ? "Stop" : "Start";
+				cont_vec = {
+					Fx::b + Theme::c("main_fg") + action + ' ' + Fx::ub + Theme::c("hi_fg") + uresize(p_name, 30) + Fx::reset,
+				};
+				messageBox = Menu::msgBox{ 50, 1, cont_vec, str_to_lower(action)};
+			}
+			else {
+				cont_vec = {
+					Fx::b + Theme::c("main_fg") + "Terminate PID: " + Fx::ub + Theme::c("hi_fg") + to_string(s_pid) + Theme::c("main_fg") + " ("
+					+ uresize(p_name, 16) + ')' + Fx::reset,
+				};
+				messageBox = Menu::msgBox{ 50, 1, cont_vec, "terminate" };
+			}
+			
 			Global::overlay = messageBox();
 		}
 		auto ret = messageBox.input(key);
 		if (ret == msgBox::Ok_Yes) {
 			signalKillRet = 0;
-			HandleWrapper p(OpenProcess(PROCESS_TERMINATE, false, s_pid));
-			if (not TerminateProcess(p(), 1)) {
-				signalKillRet = GetLastError();
-				menuMask.set(SignalReturn);
+			if (service) {
+				if (auto ret = ServiceCommand(p_name, running ? Tools::SCstop : Tools::SCstart); ret != ERROR_SUCCESS) {
+					signalKillRet = ret;
+					menuMask.set(SignalReturn);
+				}
+			}
+			else {
+				HandleWrapper p(OpenProcess(PROCESS_TERMINATE, false, s_pid));
+				if (not TerminateProcess(p(), 1)) {
+					signalKillRet = GetLastError();
+					menuMask.set(SignalReturn);
+				}
 			}
 			messageBox.clear();
 			return Closed;
@@ -871,6 +892,46 @@ namespace Menu {
 		if (ret == msgBox::Ok_Yes or ret == msgBox::No_Esc) {
 			messageBox.clear();
 			return Closed;
+		}
+		else if (redraw) {
+			return Changed;
+		}
+		return NoChange;
+	}
+
+	int signalPause(const string& key) {
+		auto& p_name = Proc::detailed.entry.name;
+		bool paused = Proc::detailed.status == "Paused";
+		if (redraw) {
+			atomic_wait(Runner::active);
+			vector<string> cont_vec;
+			string action = paused ? "Continue" : "Pause";
+			cont_vec = {
+				Fx::b + Theme::c("main_fg") + action + ' ' + Fx::ub + Theme::c("hi_fg") + uresize(p_name, 30) + Fx::reset,
+			};
+			messageBox = Menu::msgBox{ 50, 1, cont_vec, str_to_lower(action) };
+
+			Global::overlay = messageBox();
+		}
+		auto ret = messageBox.input(key);
+		if (ret == msgBox::Ok_Yes) {
+			signalKillRet = 0;
+			
+			if (auto ret = ServiceCommand(p_name, paused ? Tools::SCcontinue : Tools::SCpause); ret != ERROR_SUCCESS) {
+				signalKillRet = ret;
+				menuMask.set(SignalReturn);
+			}
+			
+			messageBox.clear();
+			return Closed;
+		}
+		else if (ret == msgBox::No_Esc) {
+			messageBox.clear();
+			return Closed;
+		}
+		else if (ret == msgBox::Select) {
+			Global::overlay = messageBox();
+			return Changed;
 		}
 		else if (redraw) {
 			return Changed;
@@ -1337,6 +1398,7 @@ namespace Menu {
 		ref(sizeError),
 		/*ref(signalChoose),*/
 		ref(signalSend),
+		ref(signalPause),
 		ref(signalReturn),
 		ref(optionsMenu),
 		ref(helpMenu),

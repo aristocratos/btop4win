@@ -380,10 +380,16 @@ namespace Input {
 					if (key == "-" or key == "space") Proc::collapse = pid;
 					no_update = false;
 				}
-				else if (is_in(key, "t", kill_key) and (Config::getB("show_detailed") or Config::getI("selected_pid") > 0)) {
+				else if (is_in(key, "t", kill_key) and (Config::getB("show_detailed") or Config::getI("selected_pid") > 0 or not Config::getS("selected_name").empty())) {
 					atomic_wait(Runner::active);
-					if (Config::getB("show_detailed") and Config::getI("proc_selected") == 0 and Proc::detailed.status == "Dead") return;
+					if (not Config::getB("proc_services") and Config::getB("show_detailed") and Config::getI("proc_selected") == 0 and Proc::detailed.status == "Stopped") return;
 					Menu::show(Menu::Menus::SignalSend);
+					return;
+				}
+				else if (key == "u" and Config::getB("proc_services") and Config::getB("show_detailed")) {
+					atomic_wait(Runner::active);
+					if (not Proc::detailed.can_pause or Proc::detailed.status == "Stopped") return;
+					Menu::show(Menu::Menus::SignalPause);
 					return;
 				}
 				else if (key == "s") {

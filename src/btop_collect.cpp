@@ -1914,16 +1914,22 @@ namespace Proc {
 	//* Get detailed info for selected process
 	void _collect_details(const size_t pid, const string name, const uint64_t uptime, vector<proc_info>& procs, uint64_t totalMem) {
 		const auto& services = Config::getB("proc_services");
+		static string last_status;
 		if (pid != detailed.last_pid or name != detailed.last_name) {
 			detailed = {};
 			detailed.last_pid = pid;
 			detailed.last_name = name;
 			detailed.status = "Running";
+			last_status = detailed.status;
 		}
 
 		if (services and WMISvcList.contains(name)) {
 			const auto& svc = WMISvcList.at(name);
 			detailed.status = bstr2str(svc.State);
+			if (detailed.status != last_status) {
+				last_status = detailed.status;
+				redraw = true;
+			}
 			detailed.owner = bstr2str(svc.Owner);
 			detailed.start = bstr2str(svc.StartMode);
 			detailed.description = bstr2str(svc.Description);
@@ -1931,7 +1937,7 @@ namespace Proc {
 			detailed.can_stop = svc.AcceptStop;
 		}
 
-		if (detailed.status == "Running") {
+		if (is_in(detailed.status, "Running", "Paused")) {
 
 			//? Copy proc_info for process from proc vector
 			auto p_info = (services ? rng::find(procs, name, &proc_info::name) : rng::find(procs, pid, &proc_info::pid));
@@ -2248,6 +2254,13 @@ namespace Proc {
 					new_svc.cpu_s = proc->cpu_s;
 					new_svc.mem = proc->mem;
 					new_svc.threads = proc->threads;
+				}
+				else {
+					new_svc.cpu_c = 0.0;
+					new_svc.cpu_p = 0.0;
+					new_svc.cpu_s = 0;
+					new_svc.mem = 0;
+					new_svc.threads = 0;
 				}
 
 			}
