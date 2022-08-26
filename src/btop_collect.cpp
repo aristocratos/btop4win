@@ -312,9 +312,11 @@ namespace Cpu {
 				has_OHMR = false;
 				return;
 			}
-
+			
 			string output;
-			if (not ExecCMD(OHMR_path + " SimpleInfo --Mainboard --CPU --GPU", output) or output.empty()) {
+			static bool fetch_mb = true;
+			const bool fetch_gpu = Config::getB("show_gpu");
+			if (not ExecCMD(OHMR_path + " SimpleInfo --CPU" + (fetch_mb ? " --Mainboard" : "") + (fetch_gpu ? " --GPU" : ""), output) or output.empty()) {
 				Logger::error("Error running Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
 				has_OHMR = false;
 				return;
@@ -418,11 +420,14 @@ namespace Cpu {
 			if (not hasPackage) {
 				if (mb_cpu > 0)
 					cpu_temps.insert(cpu_temps.begin(), mb_cpu);
-				else if (not cpu_temps.empty())
+				else if (not cpu_temps.empty()) {
 					cpu_temps.insert(cpu_temps.begin(), std::accumulate(cpu_temps.begin(), cpu_temps.end(), 0) / cpu_temps.size());
+				}
 				else if (mb_system > 0)
 					cpu_temps.insert(cpu_temps.begin(), mb_system);
 			}
+
+			if (fetch_mb and mb_cpu < 1 and mb_system < 1) fetch_mb = false;
 
 			//! For testing purposes on system without dedicated GPU
 			//string gname1 = "Nvidia RTX 3080";
@@ -895,7 +900,7 @@ namespace Shared {
 	long pageSize, clkTck, coreCount;
 
 	void init_status(const string status) {
-		static bool enabled = Config::bools.at("enable_ohmr");
+		static bool enabled = Config::bools.at("enable_ohmr") and fs::exists(Cpu::OHMR_path);
 		if (not enabled) return;
 		static int current = 0;
 		static const int x = Term::width / 2 - 15;
@@ -922,6 +927,7 @@ namespace Shared {
 		//? Shared global variables init
 		procPath = "";
 		passwd_path = "";
+		Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
 
 		//? Set SE DEBUG mode
 		init_status("Setting SE Debug Mode");
@@ -953,7 +959,6 @@ namespace Shared {
 		init_status("Starting up Open Hardware Monitor");
 		//? Start up background thread for Open Hardware Monitor Report
 		if (Config::bools.at("enable_ohmr")) {
-			Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
 			Cpu::OHMR_init();
 			if (Cpu::has_OHMR) std::thread(Cpu::OHMR_collect).detach();
 		}
@@ -1369,12 +1374,10 @@ namespace Mem {
 
 		mem.stats.at("page_total") = static_cast<int64_t>(memstat.ullTotalPageFile) - totalMem;
 		mem.stats.at("page_free") = static_cast<int64_t>(memstat.ullAvailPageFile);
-		if (mem.stats.at("page_total") < mem.stats.at("page_free")) {
+		if (mem.pagevirt or mem.stats.at("page_total") < mem.stats.at("page_free")) {
 			mem.stats.at("page_total") += mem.stats.at("page_free");
 			mem.pagevirt = true;
 		}
-		else
-			mem.pagevirt = false;
 		mem.stats.at("page_used") = mem.stats.at("page_total") - mem.stats.at("page_free");
 
 		//? Calculate percentages
