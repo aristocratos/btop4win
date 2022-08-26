@@ -28,10 +28,11 @@ tab-size = 4
 #include <widechar_width.hpp>
 #include <codecvt>
 
+#define _WIN32_DCOM
+#define _WIN32_WINNT 0x0600
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
-#include <windows.h>
 #include <comutil.h>
 #include <winsock.h>
 #include <comdef.h>
@@ -160,17 +161,27 @@ namespace Tools {
 	SC_HANDLE ServiceHandleWrapper::operator()() { return wHandle; }
 	ServiceHandleWrapper::~ServiceHandleWrapper() { if (wHandle != nullptr) CloseServiceHandle(wHandle); }
 
+	ServiceConfigWrapper::ServiceConfigWrapper() : conf(nullptr) { ; }
+	ServiceConfigWrapper::ServiceConfigWrapper(DWORD bufSize) { 
+		conf = reinterpret_cast<LPQUERY_SERVICE_CONFIG>(LocalAlloc(LMEM_FIXED, bufSize));
+		valid = (conf != nullptr);
+	}
+	LPQUERY_SERVICE_CONFIG ServiceConfigWrapper::operator()() { return conf; }
+	ServiceConfigWrapper::~ServiceConfigWrapper() { if (conf != nullptr) LocalFree(conf); }
+
 	DWORD ServiceCommand(string name, ServiceCommands command) {
 		//? Open handle to service manager
 		ServiceHandleWrapper SCmanager(OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS));
 		if (not SCmanager.valid) {
-			throw std::runtime_error("Tools::ServiceCommand(): OpenSCManager() failed with error code: " + to_string(GetLastError()));
+			Logger::error("Tools::ServiceCommand(): OpenSCManager() failed with error code: " + to_string(GetLastError()));
+			return ERROR_INVALID_FUNCTION;
 		}
 
 		//? Open handle to service
 		ServiceHandleWrapper SCitem(OpenService(SCmanager(), _bstr_t(name.c_str()), SERVICE_ALL_ACCESS));
 		if (not SCitem.valid) {
-			throw std::runtime_error("Tools::ServiceCommand(): OpenService() failed with error code: " + to_string(GetLastError()));
+			Logger::error("Tools::ServiceCommand(): OpenService() failed with error code: " + to_string(GetLastError()));
+			return ERROR_INVALID_FUNCTION;
 		}
 
 		SERVICE_STATUS_PROCESS itemStat;
@@ -178,34 +189,30 @@ namespace Tools {
 
 		//? Get service status
 		if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
-			throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
+			Logger::error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
+			return ERROR_INVALID_FUNCTION;
 		}
 
 		DWORD DesiredState = NULL;
-		DWORD WAIT_ON;
 		DWORD ControlCommand;
 
 		if (command == SCstart) {
 			DesiredState = SERVICE_RUNNING;
-			WAIT_ON = SERVICE_START_PENDING;
 		}
 		else if (command == SCstop) {
 			DesiredState = SERVICE_STOPPED;
 			ControlCommand = SERVICE_CONTROL_STOP;
-			WAIT_ON = SERVICE_STOP_PENDING;
 		}
 		else if (command == SCcontinue) {
 			DesiredState = SERVICE_RUNNING;
 			ControlCommand = SERVICE_CONTROL_CONTINUE;
-			WAIT_ON = SERVICE_CONTINUE_PENDING;
 		}
 		else if (command == SCpause) {
 			DesiredState = SERVICE_PAUSED;
 			ControlCommand = SERVICE_CONTROL_PAUSE;
-			WAIT_ON = SERVICE_PAUSE_PENDING;
 		}
 		else if (command == SCchange) {
-			ControlCommand == SERVICE_CONTROL_PARAMCHANGE;
+			ControlCommand = SERVICE_CONTROL_PARAMCHANGE;
 		}
 		else {
 			return ERROR_INVALID_FUNCTION;
@@ -213,7 +220,7 @@ namespace Tools {
 
 		//? Check if service is already in the desired state
 		if (DesiredState != NULL and itemStat.dwCurrentState == DesiredState) {
-			return ERROR_INVALID_FUNCTION;
+			return ERROR_ALREADY_EXISTS;
 		}
 
 		//? Send command to service
@@ -229,49 +236,49 @@ namespace Tools {
 			}
 		}
 
-		if (command == SCchange) return ERROR_SUCCESS;
-
-		//? Get service status
-		if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
-			throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
-		}
-		
-		DWORD StartTickCount = GetTickCount64();
-		DWORD OrgStartTickCount = StartTickCount;
-		DWORD OldCheckPoint = itemStat.dwCheckPoint;
-		DWORD WaitTime;
-
-		//? Wait for service to respond for max 10 seconds
-		while (itemStat.dwCurrentState == WAIT_ON) {
-
-			WaitTime = itemStat.dwWaitHint / 10;
-
-			if (WaitTime < 100) WaitTime = 100;
-			else if (WaitTime > 1000) WaitTime = 1000;
-
-			Sleep(WaitTime);
-
-			//? Get service status
-			if (not QueryServiceStatusEx(SCitem(), SC_STATUS_PROCESS_INFO, (LPBYTE)&itemStat, sizeof(SERVICE_STATUS_PROCESS), &BytesNeeded)) {
-				throw std::runtime_error("Tools::ServiceCommand(): QueryServiceStatusEx() failed with error code: " + to_string(GetLastError()));
-			}
-
-			if (DWORD TickNow = GetTickCount64(); itemStat.dwCheckPoint > OldCheckPoint) {
-				StartTickCount = TickNow;
-				OldCheckPoint = itemStat.dwCheckPoint;
-			}
-			else if (TickNow - StartTickCount > itemStat.dwWaitHint or TickNow - OrgStartTickCount > 10000) {
-				break;
-			}
-				
-		}
-
-		if (itemStat.dwCurrentState != DesiredState) return WAIT_TIMEOUT;
 		return ERROR_SUCCESS;
 	}
 
 	auto ServiceGetConfig(string name)->std::tuple<DWORD, DWORD, DWORD> {
-		return { 0, 0, 0 };
+		//? Open handle to service manager
+		ServiceHandleWrapper SCmanager(OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS));
+		if (not SCmanager.valid) {
+			Logger::error("Tools::ServiceCommand(): OpenSCManager() failed with error code: " + to_string(GetLastError()));
+			return { ERROR_INVALID_FUNCTION, 0, 0 };
+		}
+
+		//? Open handle to service
+		ServiceHandleWrapper SCitem(OpenService(SCmanager(), _bstr_t(name.c_str()), SERVICE_ALL_ACCESS));
+		if (not SCitem.valid) {
+			Logger::error("Tools::ServiceCommand(): OpenService() failed with error code: " + to_string(GetLastError()));
+			return { ERROR_INVALID_FUNCTION, 0, 0 };
+		}
+
+		//? Get size needed for LPQUERY_SERVICE_CONFIG
+		DWORD BytesNeeded = 0;
+		DWORD BufSize = 0;
+		DWORD ErrorCode = 0;
+		if (not QueryServiceConfig(SCitem(), NULL, 0, &BytesNeeded)) {
+			ErrorCode = GetLastError();
+			if (ErrorCode == ERROR_INSUFFICIENT_BUFFER) {
+				BufSize = BytesNeeded;
+			}
+			else {
+				return { ErrorCode, 0, 0};
+			}
+		}
+
+		//? Get service configuration
+		ServiceConfigWrapper scConf(BufSize);
+		if (not scConf.valid) {
+			return { ERROR_NOT_ENOUGH_MEMORY, 0, 0 };
+		}
+
+		if (not QueryServiceConfig(SCitem(), scConf(), BufSize, &BytesNeeded)) {
+			return { GetLastError(), 0, 0};
+		}
+		
+		return { ERROR_SUCCESS, scConf()->dwServiceType, scConf()->dwStartType};
 	}
 
 	size_t wide_ulen(const string& str) {

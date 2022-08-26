@@ -17,7 +17,7 @@ tab-size = 4
 */
 
 #pragma once
-
+#define NOMINMAX
 #include <string>
 #include <vector>
 #include <array>
@@ -29,7 +29,6 @@ tab-size = 4
 #include <thread>
 #include <tuple>
 #include <limits.h>
-#define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <windows.h>
@@ -157,6 +156,16 @@ namespace Tools {
 		ServiceHandleWrapper(SC_HANDLE nHandle);
 		SC_HANDLE operator()();
 		~ServiceHandleWrapper();
+	};
+
+	class ServiceConfigWrapper {
+	public:
+		LPQUERY_SERVICE_CONFIG conf;
+		bool valid = false;
+		ServiceConfigWrapper();
+		ServiceConfigWrapper(DWORD bufSize);
+		LPQUERY_SERVICE_CONFIG operator()();
+		~ServiceConfigWrapper();
 	};
 
 	enum ServiceCommands { SCstart, SCstop, SCcontinue, SCpause, SCchange};
