@@ -557,6 +557,20 @@ namespace Tools {
 		return (out.empty() ? fallback : out);
 	}
 
+	vector<string> v_readfile(const std::filesystem::path& path) {
+		vector<string> out;
+		if (not fs::exists(path)) return out;
+		
+		try {
+			std::ifstream file(path);
+			for (string readstr; getline(file, readstr, '\n'); out.push_back(readstr));
+		}
+		catch (const std::exception& e) {
+			Logger::error("v_readfile() : Exception when reading " + path.string() + " : " + e.what());
+		}
+		return out;
+	}
+
 	auto celsius_to(const long long& celsius, const string& scale) -> tuple<long long, string> {
 		if (scale == "celsius")
 			return {celsius, "°C"};
@@ -655,8 +669,12 @@ namespace Tools {
 		sinfo.dwFlags = 0;
 
 		// Input and/or output still needs to be done?
-		while (readfh)
+		while (readfh and not Global::quitting)
 		{
+			if (Global::quitting) {
+				TerminateProcess(pinfo.hProcess, 1);
+				break;
+			}
 			// Capture more output of the app?
 			// Read in upto OUTPUTBUFSIZE bytes
 			if (!ReadFile(readfh, cbuff + sinfo.dwFlags, OUTPUTBUFSIZE - sinfo.dwFlags, &pinfo.dwProcessId, 0) || !pinfo.dwProcessId)
@@ -686,7 +704,10 @@ namespace Tools {
 		if (readfh) CloseHandle(readfh);
 
 		// Wait for the app to finish
-		WaitForSingleObject(pinfo.hProcess, INFINITE);
+		while (WaitForSingleObject(pinfo.hProcess, 10) == WAIT_TIMEOUT and not Global::quitting);
+		if (Global::quitting) {
+			TerminateProcess(pinfo.hProcess, 1);
+		}
 
 		// Close process and thread handles
 		CloseHandle(pinfo.hProcess);

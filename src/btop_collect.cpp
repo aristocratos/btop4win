@@ -184,6 +184,7 @@ namespace Cpu {
 	atomic<uint64_t> smiTimer = 0;
 	atomic<uint64_t> OHMRTimer = 0;
 	string OHMR_path;
+	string OHMR_out_path;
 	bool has_OHMR = true;
 	string smi_path;
 	std::mutex SMImutex;
@@ -300,7 +301,46 @@ namespace Cpu {
 		return true;
 	}
 
-	//* Collects Cpu and Gpu information from Open Hardware Monitor Report btop-mod (https://github.com/aristocratos/openhardwaremonitor)
+	bool OHMR_running = false;
+
+	void OHMR_launcher() {
+		const string cmd = OHMR_path + " SimpleReportFileLooper -f " + OHMR_out_path + " --CPU --Mainboard --GPU";
+		STARTUPINFO sinfo;
+		PROCESS_INFORMATION pinfo;
+		SECURITY_ATTRIBUTES sattr;
+
+		ZeroMemory(&sinfo, sizeof(STARTUPINFO));
+		sinfo.cb = sizeof(STARTUPINFO);
+		sinfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+		sinfo.wShowWindow = SW_HIDE;
+		sattr.nLength = sizeof(SECURITY_ATTRIBUTES);
+		sattr.lpSecurityDescriptor = 0;
+		sattr.bInheritHandle = TRUE;
+
+		//? Start Open Hardware Monitor Report
+		if (!CreateProcess(0, _bstr_t(cmd.c_str()), 0, 0, TRUE, 0, 0, 0, &sinfo, &pinfo)) {
+			CloseHandle(sinfo.hStdOutput);
+			Logger::debug("OHMR_launcher() failed to create process.");
+			OHMR_running = false;
+			return;
+		}
+
+		CloseHandle(sinfo.hStdInput);
+		CloseHandle(sinfo.hStdOutput);
+
+		//? Loop until error or btop quit
+		while (WaitForSingleObject(pinfo.hProcess, 10) == WAIT_TIMEOUT and not Global::quitting);
+		if (Global::quitting) {
+			TerminateProcess(pinfo.hProcess, 0);
+		}
+
+		CloseHandle(pinfo.hProcess);
+		CloseHandle(pinfo.hThread);
+
+		OHMR_running = false;
+	}
+
+	//* Collects Cpu, Motherboard and Gpu information from Open Hardware Monitor Report btop-mod (https://github.com/aristocratos/openhardwaremonitor)
 	void OHMR_collect() {
 		static bool ohmr_init = true;
 		while (not Global::quitting and has_OHMR) {
@@ -312,12 +352,30 @@ namespace Cpu {
 				has_OHMR = false;
 				return;
 			}
+
+			//? Remove Open Hardware Monitor Report output file to trigger a refresh
+			if (fs::exists(OHMR_out_path)) {
+				if (std::error_code ec; not fs::remove(OHMR_out_path, ec) or ec) {
+					Logger::error("Failed to remove old Open Hardware Monitor Report output file. Disabling CPU clock/temp monitoring and GPU monitoring.");
+					has_OHMR = false;
+					return;
+				}
+			}
+
+			if (ohmr_init) {
+				OHMR_running = true;
+				std::thread(Cpu::OHMR_launcher).detach();
+			}
 			
-			string output;
-			static bool fetch_mb = true;
-			const bool fetch_gpu = Config::getB("show_gpu");
-			if (not ExecCMD(OHMR_path + " SimpleInfo --CPU" + (fetch_mb ? " --Mainboard" : "") + (fetch_gpu ? " --GPU" : ""), output) or output.empty()) {
-				Logger::error("Error running Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
+			//? Wait for Open Hardware Monitor Report
+			auto start_t = time_ms();
+			while (OHMR_running and not fs::exists(OHMR_out_path) and time_ms() - start_t < 5000) sleep_ms(10);
+			
+			sleep_ms(10);
+			auto outvec = v_readfile(OHMR_out_path);
+
+			if (not OHMR_running or outvec.empty()) {
+				Logger::error("Something went wrong with Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
 				has_OHMR = false;
 				return;
 			}
@@ -335,21 +393,17 @@ namespace Cpu {
 			string gpu_name = "";
 			gpu_order.clear();
 
-
-			//? Split output to a vector of lines
-			auto outvec = ssplit(output, '\n');
-
 			//? Iterate over Open Hardware Monitor Report output
 			for (const auto& line : outvec) {
 
 				//? Split line by tab separator
 				auto linevec = ssplit(line, '\t');
 				if (linevec.size() < 3) continue;
+				
 				try {
 					//? New sensor section
 					if (linevec.front() == "Sensor:") {
 						cur_id = linevec.at(2);
-						cur_id.pop_back();
 						if (cur_id.contains("gpu")) {
 							gpu_name = linevec.at(1);
 							if (gpu_name.empty()) gpu_name = cur_id;
@@ -427,7 +481,7 @@ namespace Cpu {
 					cpu_temps.insert(cpu_temps.begin(), mb_system);
 			}
 
-			if (fetch_mb and mb_cpu < 1 and mb_system < 1) fetch_mb = false;
+			//if (fetch_mb and mb_cpu < 1 and mb_system < 1) fetch_mb = false;
 
 			//! For testing purposes on system without dedicated GPU
 			//string gname1 = "Nvidia RTX 3080";
@@ -928,6 +982,7 @@ namespace Shared {
 		procPath = "";
 		passwd_path = "";
 		Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
+		Cpu::OHMR_out_path = Config::conf_dir.string() + "OHMR\\out";
 
 		//? Set SE DEBUG mode
 		init_status("Setting SE Debug Mode");

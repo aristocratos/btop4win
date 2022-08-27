@@ -357,6 +357,9 @@ namespace Tools {
 	//* Read a complete file and return as a string
 	string readfile(const std::filesystem::path& path, const string& fallback="");
 
+	//* Read a complete file and return as a vector of strings
+	vector<string> v_readfile(const std::filesystem::path& path);
+
 	//* Convert a celsius value to celsius, fahrenheit, kelvin or rankin and return tuple with new value and unit.
 	auto celsius_to(const long long& celsius, const string& scale) -> tuple<long long, string>;
 
