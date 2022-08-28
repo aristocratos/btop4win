@@ -164,8 +164,11 @@ Also needs a UTF8 locale and a font that covers:
 
 ## Installation
 
-Download package of choice from latest [release](https://github.com/aristocratos/btop4win/releases/latest)
-Extract the btop4win folder anywhere and run btop4win.exe.
+1. Make sure you have the latest MSVC Runtime Libraries installed: https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+2. Download package of choice from latest [release](https://github.com/aristocratos/btop4win/releases/latest)
+
+3. Extract the btop4win folder anywhere and run btop4win.exe.
 
 ## Compilation
 
