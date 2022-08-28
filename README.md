@@ -21,15 +21,29 @@
 * [Prerequisites](#prerequisites) (Read this if you are having issues!)
 * [Screenshots](#screenshots)
 * [Keybindings](#help-menu)
-* [Installation Linux/OSX](#installation)
-* [Compilation Linux](#compilation-linux)
-* [Compilation OSX](#compilation-osx)
-* [Compilation FreeBSD](#compilation-freebsd)
-* [Installing the snap](#installing-the-snap)
+* [Installation](#installation)
+* [Compilation](#compilation)
 * [Configurability](#configurability)
 * [License](#license)
 
 ## News
+
+##### 28 August 2022
+
+Release of btop4win v1.0.0
+
+There are 2 packages to choose from in the releases: btop4win and btop4win-OHMR.
+
+* btop4win
+
+Has no support for GPU monitoring, CPU temperature monitoring and does not have accurate CPU clock monitoring. But it does not require admin rights to run.
+
+* btop4win-OHMR
+
+Has full GPU monitoring, etc. using a modified version of [Open Hardware Monitor Report ([source](https://github.com/aristocratos/openhardwaremonitor)).
+It does however requires admin rights to run.
+It currently works by messaging by a text file which isn't ideal.
+Ideas and code contributions for optimizing the communication between the C# code and the C++ code are very welcome!
 
 ##### 27 Mars 2022
 
@@ -62,9 +76,11 @@ Will run on Windows 7 or later but requires custom terminal software that suppor
 
 Notes:
 
-The default symbols for graphs are set to TTY for best compatibility with Windows fonts, for braille and block symbols get custom fonts.
+The default symbols for graphs are set to TTY by default for best compatibility with Windows CMD fonts, for braille and block symbols get custom fonts.
 
 See [Cascadia Code](https://github.com/microsoft/cascadia-code) for a font that includes the braille symbols.
+
+A recommended terminal if you're not running Windows 11 (Where it's included by default): [Windows Terminal](https://github.com/microsoft/terminal)
 
 ## Features
 
@@ -90,8 +106,7 @@ Btop4win++ uses the same theme files as btop++, bpytop and bashtop (some color v
 
 See [themes](https://github.com/aristocratos/btop/tree/master/themes) folder for available themes.
 
-The `make install` command places the default themes in `[$PREFIX or /usr/local]/share/btop/themes`.
-User created themes should be placed in `$XDG_CONFIG_HOME/btop/themes` or `$HOME/.config/btop/themes`.
+Themes are located in the themes folder in the same location as btop4win.exe.
 
 Let me know if you want to contribute with new themes.
 
@@ -118,25 +133,23 @@ Also needs a UTF8 locale and a font that covers:
 * Unicode Block “Geometric Shapes” U+25A0 - U+25FF
 * Unicode Block "Box Drawing" and "Block Elements" U+2500 - U+259F
 
+* Recommended: [The new Windows Terminal](https://github.com/microsoft/terminal)
+
 ### **Notice (Text rendering issues)**
 
-* If you are having problems with the characters in the graphs not looking like they do in the screenshots, it's likely a problem with your font not having support for braille characters.
+* If you are having problems with the characters in the graphs not looking like they do in the screenshots, it's likely a problem with your font not having support for some characters used (braille characters etc.).
 
-* See [Terminess Powerline](https://github.com/ryanoasis/nerd-fonts/tree/master/patched-fonts/Terminus/terminus-ttf-4.40.1) for an example of a font that includes the braille symbols.
+* See [Cascadia Code](https://github.com/microsoft/cascadia-code) or [Terminess Powerline](https://github.com/ryanoasis/nerd-fonts/tree/master/patched-fonts/Terminus/terminus-ttf-4.40.1) for examples of fonts that includes the needed symbols.
 
 ## Screenshots
 
-#### Main UI showing details for a selected process
+#### Main UI showing details for a selected process, font: [Terminess Powerline](https://github.com/ryanoasis/nerd-fonts/tree/master/patched-fonts/Terminus/terminus-ttf-4.40.1)
 
 ![Screenshot 1](Img/normal.png)
 
-#### Main UI in TTY mode
+#### Main UI with TTY graph symbols using CMD Raster fonts
 
 ![Screenshot 2](Img/tty.png)
-
-#### Main UI with custom options
-
-![Screenshot 3](Img/alt.png)
 
 #### Main-menu
 
@@ -152,24 +165,31 @@ Also needs a UTF8 locale and a font that covers:
 
 ## Installation
 
-
+Download package of choice from latest [release](https://github.com/aristocratos/btop4win/releases/latest)
+Extract the btop4win folder anywhere and run btop4win.exe.
 
 ## Compilation
 
+Clone the repository or download source package from latest release.
 
+Open solution with Visual Studio 2022.
+
+Choose between Debug, Release and Release-Admin configurations. (Release-Admin sets admin requirement on the binary, otherwise the same as Release).
+
+Build solution.
 
 ## Configurability
 
 All options changeable from within UI.
-Config and log files stored in `$XDG_CONFIG_HOME/btop` or `$HOME/.config/btop` folder
+Config and log files stored in same folder as btop4win.exe
 
 #### btop.conf: (auto generated if not found)
 
 ```bash
-#? Config file for btop v. 1.2.2
+#? Config file for btop4win v. 1.0.0
 
 #* Name of a btop++/bpytop/bashtop formatted ".theme" file, "Default" and "TTY" for builtin themes.
-#* Themes should be placed in "../share/btop/themes" relative to binary or "$HOME/.config/btop/themes"
+#* Themes should be placed in "themes" folder in same folder as btop4win.exe
 color_theme = "Default"
 
 #* If the theme set background should be shown, set to False if you want terminal background transparency.
@@ -192,15 +212,25 @@ presets = "cpu:1:default,proc:0:default cpu:0:default,mem:0:default,net:0:defaul
 #* Conflicting keys for h:"help" and k:"kill" is accessible while holding shift.
 vim_keys = False
 
+#* Enables monitoring of CPU temps, accurate CPU clock and GPU via Open Hardware Monitor Report.
+#* Needs the btop modified fork (https://github.com/aristocratos/openhardwaremonitor) installed in OHMR folder where btop is installed.
+enable_ohmr = True
+
+#* Also show gpu stats in cpu and mem box. Needs Open Hardware Monitor Report enabled.
+show_gpu = True
+
+#* Which GPU to display if multiple is detected.
+selected_gpu = "Auto"
+
 #* Rounded corners on boxes, is ignored if TTY mode is ON.
-rounded_corners = True
+rounded_corners = False
 
 #* Default symbols to use for graph creation, "braille", "block" or "tty".
 #* "braille" offers the highest resolution but might not be included in all fonts.
 #* "block" has half the resolution of braille but uses more common characters.
 #* "tty" uses only 3 different symbols but will work with most fonts and should work in a real TTY.
 #* Note that "tty" only has half the horizontal resolution of the other two, so will show a shorter historical view.
-graph_symbol = "braille"
+graph_symbol = "tty"
 
 # Graph symbol to use for graphs in cpu box, "default", "braille", "block" or "tty".
 graph_symbol_cpu = "default"
@@ -215,14 +245,21 @@ graph_symbol_net = "default"
 graph_symbol_proc = "default"
 
 #* Manually set which boxes to show. Available values are "cpu mem net proc", separate values with whitespace.
-shown_boxes = "proc cpu mem net"
+shown_boxes = "cpu mem net proc"
 
 #* Update time in milliseconds, recommended 2000 ms or above for better sample times for graphs.
 update_ms = 1500
 
-#* Processes sorting, "pid" "program" "arguments" "threads" "user" "memory" "cpu lazy" "cpu responsive",
-#* "cpu lazy" sorts top process over time (easier to follow), "cpu responsive" updates top process directly.
+#* Processes sorting, "pid" "program" "arguments" "threads" "user" "memory" "cpu lazy" "cpu direct",
+#* "cpu lazy" sorts top process over time (easier to follow), "cpu direct" updates top process directly.
 proc_sorting = "cpu lazy"
+
+#* Show services in the process box instead of processes.
+proc_services = False
+
+#* Services sorting, "service" "caption" "status" "memory" "cpu lazy" "cpu direct",
+#* "cpu lazy" sorts top service over time (easier to follow), "cpu direct" updates top service directly.
+services_sorting = "cpu lazy"
 
 #* Reverse sorting order, True or False.
 proc_reversed = False
@@ -237,13 +274,10 @@ proc_colors = True
 proc_gradient = True
 
 #* If process cpu usage should be of the core it's running on or usage of the total available cpu power.
-proc_per_core = True
+proc_per_core = False
 
 #* Show process memory as bytes instead of percent.
 proc_mem_bytes = True
-
-#* Use /proc/[pid]/smaps for memory information in the process info box (very slow but more accurate)
-proc_info_smaps = False
 
 #* Show proc box on left side of screen instead of right.
 proc_left = False
@@ -254,7 +288,7 @@ cpu_graph_upper = "total"
 
 #* Sets the CPU stat shown in lower half of the CPU graph, "total" is always available.
 #* Select from a list of detected attributes from the options menu.
-cpu_graph_lower = "total"
+cpu_graph_lower = "gpu"
 
 #* Toggles if the lower CPU graph should be inverted.
 cpu_invert_lower = True
@@ -272,16 +306,10 @@ show_uptime = True
 check_temp = True
 
 #* Which sensor to use for cpu temperature, use options menu to select from list of available sensors.
-cpu_sensor = "Auto"
+cpu_sensor = 
 
 #* Show temperatures for cpu cores also if check_temp is True and sensors has been found.
 show_coretemp = True
-
-#* Set a custom mapping between core and coretemp, can be needed on certain cpus to get correct temperature for correct core.
-#* Use lm-sensors or similar to see which cores are reporting temperatures on your machine.
-#* Format "x:y" x=core with wrong temp, y=core with correct temp, use space as separator between multiple entries.
-#* Example: "4:0 5:1 6:3"
-cpu_core_map = ""
 
 #* Which temperature scale to use, available values: "celsius", "fahrenheit", "kelvin" and "rankine".
 temp_scale = "celsius"
@@ -289,12 +317,9 @@ temp_scale = "celsius"
 #* Use base 10 for bits/bytes sizes, KB = 1000 instead of KiB = 1024.
 base_10_sizes = False
 
-#* Show CPU frequency.
-show_cpu_freq = True
-
 #* Draw a clock at top of screen, formatting according to strftime, empty string to disable.
 #* Special formatting: /host = hostname | /user = username | /uptime = system uptime
-clock_format = "%H:%M"
+clock_format = "%X"
 
 #* Update main ui in background when menus are showing, set this to false if the menus is flickering too much for comfort.
 background_update = True
@@ -303,8 +328,8 @@ background_update = True
 custom_cpu_name = ""
 
 #* Optional filter for shown disks, should be full path of a mountpoint, separate multiple values with whitespace " ".
-#* Begin line with "exclude=" to change to exclude filter, otherwise defaults to "most include" filter. Example: disks_filter="exclude=/boot /home/user".
-disks_filter = "exclude=/boot"
+#* Begin line with "exclude=" to change to exclude filter, otherwise defaults to "most include" filter. Example: disks_filter="exclude=D:\ E:\".
+disks_filter = ""
 
 #* Show graphs instead of meters for memory values.
 mem_graphs = True
@@ -312,20 +337,14 @@ mem_graphs = True
 #* Show mem box below net box instead of above.
 mem_below_net = False
 
-#* If swap memory should be shown in memory box.
-show_swap = True
-
-#* Show swap as a disk, ignores show_swap value above, inserts itself after first disk.
-swap_disk = True
+#* If page memory should be shown in memory box.
+show_page = True
 
 #* If mem box should be split to also show disks info.
 show_disks = True
 
 #* Filter out non physical disks. Set this to False to include network disks, RAM disks and similar.
 only_physical = True
-
-#* Read disks list from /etc/fstab. This also disables only_physical.
-use_fstab = False
 
 #* Set to true to show available disk space for privileged users.
 disk_free_priv = False
@@ -355,23 +374,20 @@ net_auto = True
 net_sync = False
 
 #* Starts with the Network Interface specified here.
-net_iface = "br0"
+net_iface = ""
 
 #* Show battery stats in top right if battery is present.
 show_battery = True
 
-#* Which battery to use if multiple are present. "Auto" for auto detection.
-selected_battery = "Auto"
-
 #* Set loglevel for "~/.config/btop/btop.log" levels are: "ERROR" "WARNING" "INFO" "DEBUG".
 #* The level set includes all lower levels, i.e. "DEBUG" will show all logging info.
-log_level = "DEBUG"
+log_level = "WARNING"
 ```
 
 #### Command line options
 
 ```text
-usage: btop [-h] [-v] [-/+t] [-p <id>] [--utf-force] [--debug]
+usage: btop4win.exe [-h] [-v] [-/+t] [-p <id>] [--debug]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -380,7 +396,6 @@ optional arguments:
   -t, --tty_on          force (ON) tty mode, max 16 colors and tty friendly graph symbols
   +t, --tty_off         force (OFF) tty mode
   -p, --preset <id>     start with preset, integer value between 0-9
-  --utf-force           force start even if no UTF-8 locale was detected
   --debug               start in DEBUG mode: shows microsecond timer for information collect
                         and screen draw functions and sets loglevel to DEBUG
 ```

@@ -101,7 +101,7 @@ void argumentParser(const int& argc, char **argv) {
 			exit(0);
 		}
 		else if (is_in(argument, "-v", "--version")) {
-			cout << "btop version: " << Global::Version << endl;
+			cout << "btop4win version: " << Global::Version << endl;
 			exit(0);
 		}
 		else if (is_in(argument, "-lc", "--low-color")) {

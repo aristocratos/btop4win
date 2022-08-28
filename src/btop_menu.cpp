@@ -118,7 +118,6 @@ namespace Menu {
 		{"d", "Toggle disks view in MEM box."},
 		{"F2, o", "Shows options."},
 		{"F1, h", "Shows this window."},
-		{"ctrl + z", "Sleep program and put in background."},
 		{"q, ctrl + c", "Quits program."},
 		{"+, -", "Add/Subtract 100ms to/from update timer."},
 		{"Up, Down", "Select in process list."},
@@ -137,13 +136,12 @@ namespace Menu {
 		{"c", "Toggle per-core cpu usage of processes."},
 		{"r", "Reverse sorting order in processes box."},
 		{"e", "Toggle processes tree view."},
+		{"s", "Toggle services/processes."},
 		{"Selected +, -", "Expand/collapse the selected process in tree view."},
-		{"Selected t", "Terminate selected process with SIGTERM - 15."},
-		{"Selected k", "Kill selected process with SIGKILL - 9."},
-		{"Selected s", "Select or enter signal to send to process."},
+		{"Selected t", "Terminate selected process"},
 		{"", " "},
 		{"", "For bug reporting and project updates, visit:"},
-		{"", "https://github.com/aristocratos/btop"},
+		{"", "https://github.com/aristocratos/btop4win"},
 	};
 
 	const vector<vector<vector<string>>> categories = {

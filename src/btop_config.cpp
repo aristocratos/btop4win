@@ -42,7 +42,7 @@ namespace Config {
 
 	const vector<array<string, 2>> descriptions = {
 		{"color_theme", 		"#* Name of a btop++/bpytop/bashtop formatted \".theme\" file, \"Default\" and \"TTY\" for builtin themes.\n"
-								"#* Themes should be placed in \"../share/btop/themes\" relative to binary or \"$HOME/.config/btop/themes\""},
+								"#* Themes should be placed in \"themes\" folder in same folder as btop4win.exe"},
 
 		{"theme_background", 	"#* If the theme set background should be shown, set to False if you want terminal background transparency."},
 
@@ -586,7 +586,7 @@ namespace Config {
 		Logger::debug("Writing new config file");
 		std::ofstream cwrite(conf_file, std::ios::trunc);
 		if (cwrite.good()) {
-			cwrite << "#? Config file for btop v. " << Global::Version;
+			cwrite << "#? Config file for btop4win v. " << Global::Version;
 			for (auto [name, description] : descriptions) {
 				cwrite 	<< "\n\n" << (description.empty() ? "" : description + "\n")
 						<< name << " = ";
