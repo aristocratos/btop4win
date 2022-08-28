@@ -687,110 +687,88 @@ namespace Menu {
 		Switch
 	};
 
-	//int signalChoose(const string& key) {
-	//	auto& s_pid = (Config::getB("show_detailed") and Config::getI("selected_pid") == 0 ? Config::getI("detailed_pid") : Config::getI("selected_pid"));
-	//	static int x = 0, y = 0, selected_signal = -1;
-	//	if (bg.empty()) selected_signal = -1;
-	//	auto& out = Global::overlay;
-	//	int retval = Changed;
+	int signalConfig(const string& key) {
+		auto& p_name = Proc::detailed.entry.name;
+		static string selected_signal = "";
+		static int x = 0, y = 0, i_sel = 0;
+		static const vector<string> start_index = { "Auto", "Manual", "Disabled", "System", "Boot" };
+		if (bg.empty()) selected_signal = Proc::detailed.start;
+		i_sel = v_index(start_index, selected_signal);
+		bool driver = (i_sel > 2 or Proc::detailed.service_type.ends_with("Driver"));
+		auto& out = Global::overlay;
+		int retval = Changed;
 
-	//	if (redraw) {
-	//		x = Term::width/2 - 40;
-	//		y = Term::height/2 - 9;
-	//		bg = Draw::createBox(x + 2, y, 78, 19, Theme::c("hi_fg"), true, "signals");
-	//		bg += Mv::to(y+2, x+3) + Theme::c("title") + Fx::b + cjust("Send signal to PID " + to_string(s_pid) + " ("
-	//			+ uresize((s_pid == Config::getI("detailed_pid") ? Proc::detailed.entry.name : Config::getS("selected_name")), 30) + ")", 76);
-	//	}
-	//	else if (is_in(key, "escape", "q")) {
-	//		return Closed;
-	//	}
-	//	else if (key.starts_with("button_")) {
-	//		if (int new_select = stoi(key.substr(7)); new_select == selected_signal)
-	//			goto ChooseEntering;
-	//		else
-	//			selected_signal = new_select;
-	//	}
-	//	else if (is_in(key, "enter", "space") and selected_signal >= 0) {
-	//		ChooseEntering:
-	//		signalKillRet = 0;
-	//		if (s_pid < 1) {
-	//			signalKillRet = ESRCH;
-	//			menuMask.set(SignalReturn);
-	//		}
-	//		/*else if (kill(s_pid, selected_signal) != 0) {
-	//			signalKillRet = errno;
-	//			menuMask.set(SignalReturn);
-	//		}*/
-	//		return Closed;
-	//	}
-	//	else if (key.size() == 1 and isdigit(key.at(0)) and selected_signal < 10) {
-	//		selected_signal = std::min(std::stoi((selected_signal < 1 ? key : to_string(selected_signal) + key)), 64);
-	//	}
-	//	else if (key == "backspace" and selected_signal != -1) {
-	//		selected_signal = (selected_signal < 10 ? -1 : selected_signal / 10);
-	//	}
-	//	else if (is_in(key, "up", "k") and selected_signal != 16) {
-	//		if (selected_signal == 1) selected_signal = 31;
-	//		else if (selected_signal < 6) selected_signal += 25;
-	//		else {
-	//			bool offset = (selected_signal > 16);
-	//			selected_signal -= 5;
-	//			if (selected_signal <= 16 and offset) selected_signal--;
-	//		}
-	//	}
-	//	else if (is_in(key, "down", "j")) {
-	//		if (selected_signal == 31) selected_signal = 1;
-	//		else if (selected_signal < 1 or selected_signal == 16) selected_signal = 1;
-	//		else if (selected_signal > 26) selected_signal -= 25;
-	//		else {
-	//			bool offset = (selected_signal < 16);
-	//			selected_signal += 5;
-	//			if (selected_signal >= 16 and offset) selected_signal++;
-	//			if (selected_signal > 31) selected_signal = 31;
-	//		}
-	//	}
-	//	else if (is_in(key, "left", "h") and selected_signal > 0 and selected_signal != 16) {
-	//		if (--selected_signal < 1) selected_signal = 31;
-	//		else if (selected_signal == 16) selected_signal--;
-	//	}
-	//	else if (is_in(key, "right", "l") and selected_signal <= 31 and selected_signal != 16) {
-	//		if (++selected_signal > 31) selected_signal = 1;
-	//		else if (selected_signal == 16) selected_signal++;
-	//	}
-	//	else {
-	//		retval = NoChange;
-	//	}
+		if (redraw) {
+			x = Term::width/2 - 40;
+			y = Term::height/2 - 9;
+			bg = Draw::createBox(x + 2, y, 78, 16, Theme::c("hi_fg"), true, "start-type");
+			bg += Mv::to(y+2, x+3) + Theme::c("title") + Fx::b + cjust("Set start-type for " + uresize(p_name, 30), 76);
+		}
+		else if (is_in(key, "escape", "q")) {
+			return Closed;
+		}
+		else if (key.starts_with("button_")) {
+			if (string new_select = key.substr(7); new_select == selected_signal)
+				goto ChooseEntering;
+			else {
+				selected_signal = new_select;
+				i_sel = v_index(start_index, selected_signal);
+			}
+		}
+		else if (is_in(key, "enter", "space")) {
+			ChooseEntering:
+			signalKillRet = 0;
+			if (auto ret = ServiceSetStart(p_name, ServiceStartTypes.at(selected_signal)); ret != ERROR_SUCCESS) {
+				signalKillRet = ret;
+				menuMask.set(SignalReturn);
+			}
+			
+			if (signalKillRet == 0 and Proc::detailed.can_pause) {
+				ServiceCommand(p_name, SCchange);
+			}
 
-	//	if (retval == Changed) {
-	//		int cy = y+4, cx = x+4;
-	//		out = bg + Mv::to(cy++, x+3) + Theme::c("main_fg") + Fx::ub
-	//			+ rjust("Enter signal number: ", 48) + Theme::c("hi_fg") + (selected_signal >= 0 ? to_string(selected_signal) : "") + Theme::c("main_fg") + Fx::bl + "█" + Fx::ubl;
+			return Closed;
+		}
+		else if (is_in(key, "up", "k")) {
+			if (--i_sel < 0) i_sel = (driver ? 4 : 2);
+			selected_signal = start_index.at(i_sel);
+		}
+		else if (is_in(key, "down", "j")) {
+			if (++i_sel > (driver ? 4 : 2)) i_sel = 0;
+			selected_signal = start_index.at(i_sel);
+		}
+		else {
+			retval = NoChange;
+		}
 
-	//		auto sig_str = to_string(selected_signal);
-	//		for (int count = 0, i = 0; const auto& sig : P_Signals) {
-	//			if (count == 0 or count == 16) { count++; continue; }
-	//			if (i++ % 5 == 0) { ++cy; cx = x+4; }
-	//			out += Mv::to(cy, cx);
-	//			if (count == selected_signal) out += Theme::c("selected_bg") + Theme::c("selected_fg") + Fx::b + ljust(to_string(count), 3) + ljust('(' + sig + ')', 12) + Fx::reset;
-	//			else out += Theme::c("hi_fg") + ljust(to_string(count), 3) + Theme::c("main_fg") + ljust('(' + sig + ')', 12);
-	//			if (redraw) mouse_mappings["button_" + to_string(count)] = {cy, cx, 1, 15};
-	//			count++;
-	//			cx += 15;
-	//		}
+		if (retval == Changed) {
+			int cy = y+4, cx = x+30;
+			out = bg;
+			int i = 0;
+			for (const auto& valstr : start_index) {
+				out += Mv::to(cy, cx);
+				if (i == i_sel) out += Theme::c("selected_bg") + Theme::c("selected_fg");
+				else if (i > 2 and not driver) out += Theme::c("inactive_fg");
+				else out += Theme::c("main_fg");
+				
+				out += "[" + cjust(valstr, 20) + "]" + Fx::reset;
+				if (redraw and (driver or i <= 2)) mouse_mappings["button_" + valstr] = {cy, cx, 1, 20};
+				cy++;
+				i++;
+			}
 
-	//		cy++;
-	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust( "↑ ↓ ← →", 33, true) + Theme::c("main_fg") + Fx::ub + " | To choose signal.";
-	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("0-9", 33) + Theme::c("main_fg") + Fx::ub + " | Enter manually.";
-	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ENTER", 33) + Theme::c("main_fg") + Fx::ub + " | To send signal.";
-	//		mouse_mappings["enter"] = {cy, x, 1, 73};
-	//		out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ESC or \"q\"", 33) + Theme::c("main_fg") + Fx::ub + " | To abort.";
-	//		mouse_mappings["escape"] = {cy, x, 1, 73};
+			cy++;
+			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust( "↑ ↓", 33, true) + Theme::c("main_fg") + Fx::ub + " | To choose type.";
+			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ENTER", 33) + Theme::c("main_fg") + Fx::ub + " | To set type.";
+			mouse_mappings["enter"] = {cy, x, 1, 73};
+			out += Mv::to(++cy, x+3) + Fx::b + Theme::c("hi_fg") + rjust("ESC or \"q\"", 33) + Theme::c("main_fg") + Fx::ub + " | To abort.";
+			mouse_mappings["escape"] = {cy, x, 1, 73};
 
-	//		out += Fx::reset;
-	//	}
+			out += Fx::reset;
+		}
 
-	//	return (redraw ? Changed : retval);
-	//}
+		return (redraw ? Changed : retval);
+	}
 
 	int sizeError(const string& key) {
 		if (redraw) {
@@ -877,8 +855,17 @@ namespace Menu {
 		if (redraw) {
 			vector<string> cont_vec;
 			cont_vec.push_back(Fx::b + Theme::g("used")[100] + "Failure:" + Theme::c("main_fg") + Fx::ub);
-			if (signalKillRet == ERROR_ACCESS_DENIED or signalKillRet == ERROR_INVALID_HANDLE) {
-				cont_vec.push_back("Access denied or process already terminated!" + Fx::reset);
+			if (signalKillRet == ERROR_ACCESS_DENIED) {
+				cont_vec.push_back("Access denied!" + Fx::reset);
+			}
+			else if (signalKillRet == ERROR_INVALID_HANDLE) {
+				cont_vec.push_back("Could not get handle to process or service!" + Fx::reset);
+			}
+			else if (signalKillRet == ERROR_INVALID_FUNCTION) {
+				cont_vec.push_back("Something went wrong, check logfile for more info!" + Fx::reset);
+			}
+			else if (signalKillRet == ERROR_INVALID_SERVICE_CONTROL) {
+				cont_vec.push_back("Requested action is not valid for this service!" + Fx::reset);
 			}
 			else {
 				cont_vec.push_back("Unknown error! (errno: " + to_string(signalKillRet) + ')' + Fx::reset);
@@ -1396,7 +1383,7 @@ namespace Menu {
 	//* Add menus here and update enum Menus in header
 	const auto menuFunc = vector{
 		ref(sizeError),
-		/*ref(signalChoose),*/
+		ref(signalConfig),
 		ref(signalSend),
 		ref(signalPause),
 		ref(signalReturn),

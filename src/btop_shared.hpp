@@ -266,7 +266,7 @@ namespace Proc {
 	struct detail_container {
 		size_t last_pid = 0;
 		proc_info entry;
-		string elapsed, parent, status, io_read, io_write, memory, owner, start, description, last_name;
+		string elapsed, parent, status, io_read, io_write, memory, owner, start, description, last_name, service_type;
 		long long first_mem = -1;
 		deque<long long> cpu_percent;
 		deque<long long> mem_bytes;

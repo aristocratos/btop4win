@@ -28,12 +28,13 @@ tab-size = 4
 #include <chrono>
 #include <thread>
 #include <tuple>
+#include <robin_hood.h>
 #include <limits.h>
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <windows.h>
 
-using std::string, std::vector, std::atomic, std::to_string, std::tuple, std::array;
+using std::string, std::vector, std::atomic, std::to_string, std::tuple, std::array, robin_hood::unordered_flat_map;
 
 
 //? ------------------------------------------------- NAMESPACES ------------------------------------------------------
@@ -117,10 +118,6 @@ namespace Term {
 	const string clear = Fx::e + "2J" + Fx::e + "0;0f";
 	const string clear_end = Fx::e + "0J";
 	const string clear_begin = Fx::e + "1J";
-	//const string mouse_on = Fx::e + "?1002h" + Fx::e + "?1015h" + Fx::e + "?1006h"; //? Enable reporting of mouse position on click and release
-	//const string mouse_off = Fx::e + "?1002l" + Fx::e + "?1015l" + Fx::e + "?1006l";
-	//const string mouse_direct_on = Fx::e + "?1003h"; //? Enable reporting of mouse position at any movement
-	//const string mouse_direct_off = Fx::e + "?1003l";
 	const string sync_start = Fx::e + "?2026h"; //? Start of terminal synchronized output
 	const string sync_end = Fx::e + "?2026l"; //? End of terminal synchronized output
 
@@ -169,11 +166,19 @@ namespace Tools {
 	};
 
 	enum ServiceCommands { SCstart, SCstop, SCcontinue, SCpause, SCchange};
+	const unordered_flat_map<string, DWORD> ServiceStartTypes = {
+		{"Auto", SERVICE_AUTO_START},
+		{"Boot", SERVICE_BOOT_START},
+		{"Manual", SERVICE_DEMAND_START},
+		{"Disabled", SERVICE_DISABLED},
+		{"System", SERVICE_SYSTEM_START},
+	};
 
+	//? Send command from enum ServiceCommands to service
 	DWORD ServiceCommand(string name, ServiceCommands command);
 
-	//? Return ERROR_STATUS, dwService
-	auto ServiceGetConfig(string name) -> std::tuple<DWORD, DWORD, DWORD>;
+	//? Set start type for service
+	DWORD ServiceSetStart(string name, DWORD start_type);
 }
 
 //? --------------------------------------------------- FUNCTIONS -----------------------------------------------------

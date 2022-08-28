@@ -375,8 +375,10 @@ namespace Cpu {
 			auto outvec = v_readfile(OHMR_out_path);
 
 			if (not OHMR_running or outvec.empty()) {
-				Logger::error("Something went wrong with Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
-				has_OHMR = false;
+				if (not Global::quitting) {
+					Logger::error("Something went wrong with Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
+					has_OHMR = false;
+				}
 				return;
 			}
 
@@ -740,6 +742,7 @@ namespace Proc {
 		_bstr_t StartMode = L"StartMode";
 		_bstr_t Owner = L"StartName";
 		_bstr_t State = L"State";
+		_bstr_t ServiceType = L"ServiceType";
 
 	};
 
@@ -926,6 +929,10 @@ namespace Proc {
 						Shared::VariantWrap Description{};
 						if (result->Get(Q.Description, 0, &Description.val, 0, 0) == S_OK)
 							entry.Description = Description()->bstrVal;
+
+						Shared::VariantWrap ServiceType{};
+						if (result->Get(Q.ServiceType, 0, &ServiceType.val, 0, 0) == S_OK)
+							entry.ServiceType = ServiceType()->bstrVal;
 					}
 					
 
@@ -1893,9 +1900,9 @@ namespace Proc {
 		//? If filtering, include children of matching processes
 		if (not found and (should_filter or not filter.empty())) {
 			if (not s_contains(std::to_string(cur_proc.pid), filter)
-			and not s_contains(cur_proc.name, filter)
-			and not s_contains(cur_proc.cmd, filter)
-			and not s_contains(cur_proc.user, filter)) {
+			and not s_contains_ic(cur_proc.name, filter)
+			and not s_contains_ic(cur_proc.cmd, filter)
+			and not s_contains_ic(cur_proc.user, filter)) {
 				filtering = true;
 				cur_proc.filtered = true;
 				filter_found++;
@@ -1993,6 +2000,7 @@ namespace Proc {
 			detailed.description = bstr2str(svc.Description);
 			detailed.can_pause = svc.AcceptPause;
 			detailed.can_stop = svc.AcceptStop;
+			detailed.service_type = bstr2str(svc.ServiceType);
 		}
 
 		if (is_in(detailed.status, "Running", "Paused")) {

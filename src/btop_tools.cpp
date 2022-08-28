@@ -239,46 +239,27 @@ namespace Tools {
 		return ERROR_SUCCESS;
 	}
 
-	auto ServiceGetConfig(string name)->std::tuple<DWORD, DWORD, DWORD> {
+	DWORD ServiceSetStart(string name, DWORD start_type) {
 		//? Open handle to service manager
 		ServiceHandleWrapper SCmanager(OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS));
 		if (not SCmanager.valid) {
 			Logger::error("Tools::ServiceCommand(): OpenSCManager() failed with error code: " + to_string(GetLastError()));
-			return { ERROR_INVALID_FUNCTION, 0, 0 };
+			return ERROR_INVALID_FUNCTION;
 		}
 
 		//? Open handle to service
 		ServiceHandleWrapper SCitem(OpenService(SCmanager(), _bstr_t(name.c_str()), SERVICE_ALL_ACCESS));
 		if (not SCitem.valid) {
 			Logger::error("Tools::ServiceCommand(): OpenService() failed with error code: " + to_string(GetLastError()));
-			return { ERROR_INVALID_FUNCTION, 0, 0 };
+			return ERROR_INVALID_FUNCTION;
 		}
 
-		//? Get size needed for LPQUERY_SERVICE_CONFIG
-		DWORD BytesNeeded = 0;
-		DWORD BufSize = 0;
-		DWORD ErrorCode = 0;
-		if (not QueryServiceConfig(SCitem(), NULL, 0, &BytesNeeded)) {
-			ErrorCode = GetLastError();
-			if (ErrorCode == ERROR_INSUFFICIENT_BUFFER) {
-				BufSize = BytesNeeded;
-			}
-			else {
-				return { ErrorCode, 0, 0};
-			}
+		//? Change service start type
+		if (not ChangeServiceConfig(SCitem(), SERVICE_NO_CHANGE, start_type, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL)) {
+			return GetLastError();
 		}
 
-		//? Get service configuration
-		ServiceConfigWrapper scConf(BufSize);
-		if (not scConf.valid) {
-			return { ERROR_NOT_ENOUGH_MEMORY, 0, 0 };
-		}
-
-		if (not QueryServiceConfig(SCitem(), scConf(), BufSize, &BytesNeeded)) {
-			return { GetLastError(), 0, 0};
-		}
-		
-		return { ERROR_SUCCESS, scConf()->dwServiceType, scConf()->dwStartType};
+		return ERROR_SUCCESS;
 	}
 
 	size_t wide_ulen(const string& str) {
@@ -595,22 +576,6 @@ namespace Tools {
 		if (user == NULL or strlen(user) == 0) user = getenv("USER");
 		return (user != NULL ? user : "");
 	}
-
-	//bool ExecCMD(const string& cmd, string& ret) {
-	//	FILE* pipe = _popen(cmd.c_str(), "rt");
-	//	Term::set_modes();
-	//	if (not pipe) return false;
-	//	
-
-	//	array<char, 128> buffer;
-	//	while (!feof(pipe)) {
-	//		if (fgets(buffer.data(), 128, pipe) != NULL)
-	//			ret += buffer.data();
-	//	}
-	//	if (_pclose(pipe) != 0) return false;
-
-	//	return true;
-	//}
 
 	bool ExecCMD(const string& cmd, string& ret) {
 		static const size_t OUTPUTBUFSIZE = 4096 * 10;

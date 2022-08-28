@@ -392,6 +392,10 @@ namespace Input {
 					Menu::show(Menu::Menus::SignalPause);
 					return;
 				}
+				else if (key == "S" and Config::getB("proc_services") and Config::getB("show_detailed")) {
+					Menu::show(Menu::Menus::SignalConfig);
+					return;
+				}
 				else if (key == "s") {
 					atomic_wait(Runner::active);
 					Config::flip("proc_services");

@@ -54,7 +54,7 @@ namespace Global {
 		{"#801414", "██████╔╝   ██║   ╚██████╔╝██║        ╚═╝    ╚═╝"},
 		{"#000000", "╚═════╝    ╚═╝    ╚═════╝ ╚═╝"},
 	};
-	const string Version = "0.0.1";
+	const string Version = "1.0.0";
 
 	int coreCount;
 	string overlay;
@@ -511,7 +511,7 @@ int main(int argc, char **argv) {
 
 	SetConsoleTitleA("btop4win++");
 
-	//? Setup paths for config, log and user themes
+	//? Setup paths for config, log and themes
 	wchar_t self_path[FILENAME_MAX] = { 0 };
 	GetModuleFileNameW(nullptr, self_path, FILENAME_MAX);
 
@@ -527,7 +527,6 @@ int main(int argc, char **argv) {
 		if (Config::current_boxes.empty()) Config::check_boxes(Config::getS("shown_boxes"));
 		Config::set("lowcolor", (Global::arg_low_color ? true : not Config::getB("truecolor")));
 
-		Global::debug = true; //! <------------------------------------------------------------- REMOVE
 		if (Global::debug) {
 			Logger::set("DEBUG");
 			Logger::debug("Starting in DEBUG mode!");
