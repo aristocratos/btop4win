@@ -34,16 +34,19 @@ Release of btop4win v1.0.0
 
 There are 2 packages to choose from in the releases: btop4win and btop4win-OHMR.
 
-* btop4win
+* btop4win:
 
-Has no support for GPU monitoring, CPU temperature monitoring and does not have accurate CPU clock monitoring. But it does not require admin rights to run.
+    Has no support for GPU monitoring, CPU temperature monitoring and does not have accurate CPU clock monitoring. But it does not require admin rights to run.
 
-* btop4win-OHMR
+* btop4win-OHMR:
 
-Has full GPU monitoring, etc. using a modified version of [Open Hardware Monitor Report ([source](https://github.com/aristocratos/openhardwaremonitor)).
-It does however requires admin rights to run.
-It currently works by messaging by a text file which isn't ideal.
-Ideas and code contributions for optimizing the communication between the C# code and the C++ code are very welcome!
+    Has full GPU monitoring, etc. using a modified version of Open Hardware Monitor Report included in the package, ([source](https://github.com/aristocratos/openhardwaremonitor)).
+
+    It does however requires admin rights to run.
+
+    It currently works by messaging by a text file which isn't ideal.
+
+    Ideas and code contributions for optimizing the communication between the C# code of Open Hardware Monitor Report and the C++ code of btop4win are very welcome!
 
 ##### 27 Mars 2022
 
@@ -150,10 +153,6 @@ Also needs a UTF8 locale and a font that covers:
 #### Main UI with TTY graph symbols using CMD Raster fonts
 
 ![Screenshot 2](Img/tty.png)
-
-#### Main-menu
-
-![Screenshot 3](Img/main-menu.png)
 
 #### Options-menu
 
