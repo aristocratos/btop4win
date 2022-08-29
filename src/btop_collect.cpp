@@ -63,6 +63,12 @@ tab-size = 4
 #include <btop_tools.hpp>
 #include <btop_draw.hpp>
 
+#ifdef LHM_Enabled
+	#pragma comment(lib, "external\\CPPdll.lib")
+	_declspec(dllexport) std::string FetchLHMValues();
+	_declspec(dllexport) std::string FetchLHMReport();
+#endif
+
 using std::ifstream, std::numeric_limits, std::streamsize, std::round, std::max, std::min;
 using std::clamp, std::string_literals::operator""s, std::cmp_equal, std::cmp_less, std::cmp_greater;
 namespace fs = std::filesystem;
@@ -301,86 +307,27 @@ namespace Cpu {
 		return true;
 	}
 
-	bool OHMR_running = false;
+	double ohmr_shared_mem = 0;
 
-	void OHMR_launcher() {
-		const string cmd = OHMR_path + " SimpleReportFileLooper -f " + OHMR_out_path + " --CPU --Mainboard --GPU";
-		STARTUPINFO sinfo;
-		PROCESS_INFORMATION pinfo;
-		SECURITY_ATTRIBUTES sattr;
-
-		ZeroMemory(&sinfo, sizeof(STARTUPINFO));
-		sinfo.cb = sizeof(STARTUPINFO);
-		sinfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-		sinfo.wShowWindow = SW_HIDE;
-		sattr.nLength = sizeof(SECURITY_ATTRIBUTES);
-		sattr.lpSecurityDescriptor = 0;
-		sattr.bInheritHandle = TRUE;
-
-		//? Start Open Hardware Monitor Report
-		if (!CreateProcess(0, _bstr_t(cmd.c_str()), 0, 0, TRUE, 0, 0, 0, &sinfo, &pinfo)) {
-			CloseHandle(sinfo.hStdOutput);
-			Logger::debug("OHMR_launcher() failed to create process.");
-			OHMR_running = false;
-			return;
-		}
-
-		CloseHandle(sinfo.hStdInput);
-		CloseHandle(sinfo.hStdOutput);
-
-		//? Loop until error or btop quit
-		while (WaitForSingleObject(pinfo.hProcess, 10) == WAIT_TIMEOUT and not Global::quitting);
-		if (Global::quitting) {
-			TerminateProcess(pinfo.hProcess, 0);
-		}
-
-		CloseHandle(pinfo.hProcess);
-		CloseHandle(pinfo.hThread);
-
-		OHMR_running = false;
-	}
-
-	//* Collects Cpu, Motherboard and Gpu information from Open Hardware Monitor Report btop-mod (https://github.com/aristocratos/openhardwaremonitor)
+	//* Collects Cpu, Motherboard and Gpu information from Libre Hardware Monitor, forked - (https://github.com/aristocratos/librehardwaremonitor)
 	void OHMR_collect() {
+	#ifdef LHM_Enabled
 		static bool ohmr_init = true;
 		while (not Global::quitting and has_OHMR) {
 			if (not OHMR_wait()) continue;
 			if (OHMRTimer > 0) sleep_ms(Config::getI("update_ms") - (OHMRTimer / 750));
 			auto timeStart = time_micros();
-			if (not fs::exists(OHMR_path)) {
-				Logger::debug("Open Hardware Monitor Report not found. Disabling CPU clock/temp monitoring and GPU monitoring.");
+			
+			//? Fetch sensors values
+			auto outvec = ssplit(FetchLHMValues(), '\n');
+
+			if (outvec.empty()) {
+				Logger::error("Libre Hardware Monitor found no sensors. Disabling CPU clock/temp monitoring and GPU monitoring.");
 				has_OHMR = false;
 				return;
 			}
 
-			//? Remove Open Hardware Monitor Report output file to trigger a refresh
-			if (fs::exists(OHMR_out_path)) {
-				if (std::error_code ec; not fs::remove(OHMR_out_path, ec) or ec) {
-					Logger::error("Failed to remove old Open Hardware Monitor Report output file. Disabling CPU clock/temp monitoring and GPU monitoring.");
-					has_OHMR = false;
-					return;
-				}
-			}
-
-			if (ohmr_init) {
-				OHMR_running = true;
-				std::thread(Cpu::OHMR_launcher).detach();
-			}
 			
-			//? Wait for Open Hardware Monitor Report
-			auto start_t = time_ms();
-			while (OHMR_running and not fs::exists(OHMR_out_path) and time_ms() - start_t < 5000) sleep_ms(10);
-			
-			sleep_ms(10);
-			auto outvec = v_readfile(OHMR_out_path);
-
-			if (not OHMR_running or outvec.empty()) {
-				if (not Global::quitting) {
-					Logger::error("Something went wrong with Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
-					has_OHMR = false;
-				}
-				return;
-			}
 
 			bool isGPU = false;
 			bool hasPackage = false;
@@ -395,7 +342,7 @@ namespace Cpu {
 			string gpu_name = "";
 			gpu_order.clear();
 
-			//? Iterate over Open Hardware Monitor Report output
+			//? Iterate over Libre Hardware Monitor output
 			for (const auto& line : outvec) {
 
 				//? Split line by tab separator
@@ -404,9 +351,9 @@ namespace Cpu {
 				
 				try {
 					//? New sensor section
-					if (linevec.front() == "Sensor:") {
+					if (linevec.front() == "Hardware") {
 						cur_id = linevec.at(2);
-						if (cur_id.contains("gpu")) {
+						if (cur_id.contains("Gpu")) {
 							gpu_name = linevec.at(1);
 							if (gpu_name.empty()) gpu_name = cur_id;
 							isGPU = true;
@@ -416,55 +363,58 @@ namespace Cpu {
 							isGPU = false;
 					}
 					else if (isGPU) {
-						if (linevec.front().starts_with("GPU Core")) {
+						if (linevec.front().starts_with("GPU Core") or linevec.front().starts_with("D3D 3D")) {
 							//? Gpu clock
-							if (linevec.back().starts_with(cur_id + "/clock")) {
-								gpus[gpu_name].clock_mhz = linevec.at(1) + " Mhz";
+							if (linevec.at(1) == "Clock") {
+								gpus[gpu_name].clock_mhz = linevec.at(2) + " Mhz";
 							}
 							//? Gpu temp
-							else if (linevec.back().starts_with(cur_id + "/temp")) {
-								gpus[gpu_name].temp = std::stoi(linevec.at(1));
+							else if (linevec.at(1) == "Temperature") {
+								gpus[gpu_name].temp = std::stoi(linevec.at(2));
 							}
 							//? Gpu load
-							else if (linevec.back().starts_with(cur_id + "/load")) {
-								gpus[gpu_name].usage = std::stoi(linevec.at(1));
+							else if (linevec.at(1) == "Load") {
+								gpus[gpu_name].usage = std::stoi(linevec.at(2));
+								if (linevec.front().starts_with("D3D")) {
+									gpus[gpu_name].cpu_gpu = true;
+								}
 							}
 						}
 						//? Gpu mem used
-						else if (linevec.front().starts_with("GPU Memory Used")) {
-							gpus[gpu_name].mem_used = std::stoll(linevec.at(1)) << 20ll;
+						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front().starts_with("D3D Shared Memory Used")) {
+							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;
 						}
 						//? Gpu mem total
 						else if (linevec.front().starts_with("GPU Memory Total")) {
-							gpus[gpu_name].mem_total = std::stoll(linevec.at(1)) << 20ll;
+							gpus[gpu_name].mem_total = std::stoll(linevec.at(2)) << 20ll;
 						}
 					}
 					else {
 						//? Cpu clock - using highest found value because an average of all cores doesn't do well on systems with efficiency cores
-						if (linevec.back().starts_with(cur_id + "/clock") and linevec.front().starts_with("CPU Core")) {
-							int clock = std::stoi(linevec.at(1));
+						if (linevec.front().starts_with("CPU Core") and linevec.at(1) == "Clock") {
+							int clock = std::stoi(linevec.at(2));
 							if (clock > cpu_clock) cpu_clock = clock;
 						}
 						//? Cpu core and package temp
-						else if (linevec.back().starts_with(cur_id + "/temp")) {
+						else if (linevec.at(1) == "Temperature") {
 							if (linevec.front().starts_with("CPU Core")) {
-								cpu_temps.push_back(std::stoi(linevec.at(1)));
+								cpu_temps.push_back(std::stoi(linevec.at(2)));
 							}
 							else if (not hasPackage and linevec.front().starts_with("CPU Package")) {
-								cpu_temps.insert(cpu_temps.begin(), std::stoi(linevec.at(1)));
+								cpu_temps.insert(cpu_temps.begin(), std::stoi(linevec.at(2)));
 								hasPackage = true;
 							}
 							else if (not hasPackage and linevec.front() == "CPU") {
-								mb_cpu = std::stoi(linevec.at(1));
+								mb_cpu = std::stoi(linevec.at(2));
 							}
 							else if (not hasPackage and linevec.front() == "System") {
-								mb_system = std::stoi(linevec.at(1));
+								mb_system = std::stoi(linevec.at(2));
 							}
 						}
 					}
 				}
 				catch (const std::exception& e) {
-					Logger::error("Error during Open Hardware Monitor parsing: "s + e.what());
+					Logger::error("Error during Libre Hardware Monitor parsing: "s + e.what());
 					has_gpu = false;
 					got_sensors = false;
 					has_OHMR = false;
@@ -483,24 +433,14 @@ namespace Cpu {
 					cpu_temps.insert(cpu_temps.begin(), mb_system);
 			}
 
-			//if (fetch_mb and mb_cpu < 1 and mb_system < 1) fetch_mb = false;
-
-			//! For testing purposes on system without dedicated GPU
-			//string gname1 = "Nvidia RTX 3080";
-			//gpu_order.push_back(gname1);
-			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
-			//gpus[gname1].temp = rand() % 50 + 30;
-			//gpus[gname1].usage = rand() % 100;
-			//gpus[gname1].mem_total = 10240ll << 20ll;
-			//gpus[gname1].mem_used = rand() % 5000ll + 500ll << 20ll;
-
-			//gname1 = "AMD Radeon 5770";
-			//gpu_order.push_back(gname1);
-			//gpus[gname1].clock_mhz = to_string(rand() % 1300 + 700) + " Mhz";
-			//gpus[gname1].temp = rand() % 50 + 30;
-			//gpus[gname1].usage = rand() % 100;
-			//gpus[gname1].mem_total = 10240;
-			//gpus[gname1].mem_used = rand() % 5000 + 500;
+			if (not gpus.empty()) {
+				for (auto& [ignore, g] : gpus) {
+					if (g.cpu_gpu) {
+						if (g.mem_total < 1) g.mem_total = ohmr_shared_mem;
+						if (g.temp == 0 and not cpu_temps.empty()) g.temp = cpu_temps.front();
+					}
+				}
+			}
 			
 			OHMRTimer = time_micros() - timeStart;
 
@@ -532,36 +472,34 @@ namespace Cpu {
 				if (not ohmr_init) Global::resized = true;
 			}
 
-
-			//Logger::debug("Cpu clock : " + to_string(cpu_clock));
-			//int i = 0;
-			//for (const auto& t : cpu_temps) {
-			//	Logger::debug("Temp Core " + to_string(i++) + " : " + to_string(t));
-			//}
-
-			//for (const auto& [name, g] : gpus) {
-			//	Logger::debug("Gpu name: " + name);
-			//	Logger::debug("Gpu clock: " + g.clock_mhz);
-			//	Logger::debug("Gpu temp: " + to_string(g.temp));
-			//	Logger::debug("Gpu load: " + to_string(g.usage));
-			//	Logger::debug("Gpu mem used: " + to_string(g.mem_used));
-			//	Logger::debug("Gpu mem total: " + to_string(g.mem_total));
-			//}
-
 			if (ohmr_init) { ohmr_init = false; return; }
 		}
+	#else
+		has_OHMR = false;
+		has_gpu = false;
+		got_sensors = false;
+		return;
+	#endif
 	}
 
 	void OHMR_init() {
-		OHMR_trigger();
-		OHMR_collect();
-		if (not has_OHMR) return;
-
-		string output;
-		if (not ExecCMD(OHMR_path + " ReportToConsole --CPU", output) or output.empty()) {
-			Logger::error("Error running Open Hardware Monitor Report. Disabling CPU clock/temp monitoring and GPU monitoring.");
+	#ifdef LHM_Enabled
+		string output = FetchLHMReport();
+		if (output.empty()) {
 			has_OHMR = false;
 			return;
+		}
+
+		//? Get max shared memory if using CPU-GPU
+		auto dmem_pos = output.find("GpuSharedLimit");
+		if (dmem_pos != string::npos) {
+			try {
+				auto space_pos = output.find(' ', dmem_pos);
+				ohmr_shared_mem = std::stoll(output.substr(space_pos, output.find('\n', dmem_pos) - space_pos));
+			}
+			catch (...) {
+				ohmr_shared_mem = 0;
+			}
 		}
 
 		//? Get Cpu TjMax temperature value
@@ -633,6 +571,16 @@ namespace Cpu {
 		}
 
 		Cpu::core_mapping = core_map;
+
+		OHMR_trigger();
+		OHMR_collect();
+
+#else
+		has_OHMR = false;
+		has_gpu = false;
+		got_sensors = false;
+		return;
+#endif
 	}
 
 	////* Background thread for Nvidia SMI
@@ -961,7 +909,11 @@ namespace Shared {
 	long pageSize, clkTck, coreCount;
 
 	void init_status(const string status) {
-		static bool enabled = Config::bools.at("enable_ohmr") and fs::exists(Cpu::OHMR_path);
+	#ifdef LHM_Enabled
+		static bool enabled = true;
+	#else
+		static bool enabled = false;
+	#endif
 		if (not enabled) return;
 		static int current = 0;
 		static const int x = Term::width / 2 - 15;
@@ -1018,8 +970,9 @@ namespace Shared {
 
 		clkTck = 100;
 
-		init_status("Starting up Open Hardware Monitor");
-		//? Start up background thread for Open Hardware Monitor Report
+	#ifdef LHM_Enabled
+		init_status("Libre Hardware Monitor Init");
+		//? Start up background thread for Libre Hardware Monitor
 		if (Config::bools.at("enable_ohmr")) {
 			Cpu::OHMR_init();
 			if (Cpu::has_OHMR) std::thread(Cpu::OHMR_collect).detach();
@@ -1027,6 +980,9 @@ namespace Shared {
 		else {
 			Cpu::has_OHMR = false;
 		}
+	#else
+		Cpu::has_OHMR = false;
+	#endif
 
 		init_status("CPU Init");
 		//? Init for namespace Cpu
@@ -1270,7 +1226,7 @@ namespace Cpu {
 					else
 						gpu_name = current_gpu;
 
-					for (const auto& s : { "NVIDIA", "Nvidia", "AMD", "Amd" }) {
+					for (const auto& s : { "NVIDIA", "Nvidia", "AMD", "Amd", "Intel", "(R)"}) {
 						gpu_name = s_replace(gpu_name, s, "");
 					}
 					gpu_name = trim(gpu_name);

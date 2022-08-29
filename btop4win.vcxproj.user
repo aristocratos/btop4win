@@ -8,7 +8,7 @@
     <LocalDebuggerCommandArguments>--debug</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-Admin|Win32'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-LHM|Win32'">
     <LocalDebuggerCommandArguments>--debug</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
@@ -20,7 +20,7 @@
     <LocalDebuggerCommandArguments>--debug</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-Admin|x64'">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release-LHM|x64'">
     <LocalDebuggerCommandArguments>--debug</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>

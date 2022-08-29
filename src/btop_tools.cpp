@@ -375,7 +375,7 @@ namespace Tools {
 			out.push_back(str.substr(last, loc - last));
 			last = loc + 1;
 		}
-		if (str.size() - last - 1 > 0) out.push_back(str.substr(last));
+		if (str.size() - last > 0) out.push_back(str.substr(last));
 
 		return out;
 	}

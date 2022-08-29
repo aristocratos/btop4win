@@ -95,6 +95,7 @@ namespace Cpu {
 		uint64_t mem_total = 0;
 		uint64_t mem_used = 0;
 		uint64_t temp = 0;
+		bool cpu_gpu = false;
 		string clock_mhz;
 	};
 
