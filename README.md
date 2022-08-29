@@ -194,13 +194,27 @@ Also needs a UTF8 locale and a font that covers:
 
 ## Compilation
 
-Clone the repository or download source package from latest release.
+* For compiling with LibreHardwareMonitor support:
 
-Open solution with Visual Studio 2022.
+    Either download latest release from https://github.com/aristocratos/librehardwaremonitor and place the "external" folder in btop4win top folder, or:
 
-Choose between Debug, Release and Release-Admin configurations. (Release-Admin sets admin requirement on the binary, otherwise the same as Release).
+        1. Clone https://github.com/aristocratos/librehardwaremonitor and open the solution
 
-Build solution.
+        2. Build Release configuration for CPPdll
+
+        3. Copy all .dll and .lib files from "x64/Release" to "external" folder in top-level of btop4win
+
+* btop4win
+
+    1. Clone the repository or download source package from latest release.
+
+    2. Open solution with Visual Studio 2022.
+
+    3. Choose between Debug, Release and Release-LHM configurations.
+
+    (Release-LHM sets admin requirement on the binary, LHM_Enabled declaration and needs LibreHardwareMonitor dll's and .lib in "external" folder).
+
+    4. Build solution.
 
 ## Configurability
 
