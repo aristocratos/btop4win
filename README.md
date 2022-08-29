@@ -194,27 +194,27 @@ Also needs a UTF8 locale and a font that covers:
 
 ## Compilation
 
-* For compiling with LibreHardwareMonitor support:
+1. (Optional) For compiling with LibreHardwareMonitor support:
 
-    Either download latest release from https://github.com/aristocratos/librehardwaremonitor and place the "external" folder in btop4win top folder, or:
+    * Either download latest release from https://github.com/aristocratos/librehardwaremonitor and place the "external" folder in btop4win top folder, or:
 
-        1. Clone https://github.com/aristocratos/librehardwaremonitor and open the solution
+    * 1. Clone https://github.com/aristocratos/librehardwaremonitor and open the solution
 
-        2. Build Release configuration for CPPdll
+    * 2. Build Release configuration for CPPdll
 
-        3. Copy all .dll and .lib files from "x64/Release" to "external" folder in top-level of btop4win
+    * 3. Copy all .dll and .lib files from "x64/Release" to "external" folder in top-level of btop4win
 
-* btop4win
+2. btop4win
 
-    1. Clone the repository or download source package from latest release.
+    * 1. Clone the repository or download source package from latest release.
 
-    2. Open solution with Visual Studio 2022.
+    * 2. Open solution with Visual Studio 2022.
 
-    3. Choose between Debug, Release and Release-LHM configurations.
+    * 3. Choose between Debug, Release and Release-LHM configurations.
 
-    (Release-LHM sets admin requirement on the binary, LHM_Enabled declaration and needs LibreHardwareMonitor dll's and .lib in "external" folder).
+    * * (Release-LHM sets admin requirement on the binary, LHM_Enabled declaration and needs LibreHardwareMonitor dll's and .lib in "external" folder).
 
-    4. Build solution.
+    * 4. Build solution.
 
 ## Configurability
 
