@@ -381,7 +381,7 @@ namespace Cpu {
 							}
 						}
 						//? Gpu mem used
-						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front().starts_with("D3D Shared Memory Used")) {
+						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front() == "D3D Shared Memory Used") {
 							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;
 						}
 						//? Gpu mem total
@@ -400,7 +400,7 @@ namespace Cpu {
 							if (linevec.front().starts_with("CPU Core")) {
 								cpu_temps.push_back(std::stoi(linevec.at(2)));
 							}
-							else if (not hasPackage and linevec.front().starts_with("CPU Package")) {
+							else if (not hasPackage and (linevec.front().starts_with("CPU Package") or linevec.front() == "Core (Tctl/Tdie)")) {
 								cpu_temps.insert(cpu_temps.begin(), std::stoi(linevec.at(2)));
 								hasPackage = true;
 							}
@@ -491,11 +491,17 @@ namespace Cpu {
 		}
 
 		//? Get max shared memory if using CPU-GPU
+		bool bigmem = false;
 		auto dmem_pos = output.find("GpuSharedLimit");
+		if (dmem_pos == string::npos) {
+			bigmem = true;
+			dmem_pos = output.find("SharedSystemMemory");
+		}
 		if (dmem_pos != string::npos) {
 			try {
 				auto space_pos = output.find(' ', dmem_pos);
 				ohmr_shared_mem = std::stoll(output.substr(space_pos, output.find('\n', dmem_pos) - space_pos));
+				if (bigmem) ohmr_shared_mem *= 1024;
 			}
 			catch (...) {
 				ohmr_shared_mem = 0;
@@ -1226,7 +1232,7 @@ namespace Cpu {
 					else
 						gpu_name = current_gpu;
 
-					for (const auto& s : { "NVIDIA", "Nvidia", "AMD", "Amd", "Intel", "(R)"}) {
+					for (const auto& s : { "NVIDIA", "Nvidia", "AMD", "Amd", "Intel", "(R)", "(TM)"}) {
 						gpu_name = s_replace(gpu_name, s, "");
 					}
 					gpu_name = trim(gpu_name);
