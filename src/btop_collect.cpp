@@ -331,6 +331,7 @@ namespace Cpu {
 
 			bool isGPU = false;
 			bool hasPackage = false;
+			bool hasGPUload = false;
 			int mb_cpu = 0;
 			int mb_system = 0;
 			OHMRraw stats;
@@ -357,13 +358,14 @@ namespace Cpu {
 							gpu_name = linevec.at(1);
 							if (gpu_name.empty()) gpu_name = cur_id;
 							isGPU = true;
+							hasGPUload = false;
 							gpu_order.push_back(gpu_name);
 						}
 						else
 							isGPU = false;
 					}
 					else if (isGPU) {
-						if (linevec.front().starts_with("GPU Core") or linevec.front().starts_with("D3D 3D")) {
+						if (linevec.front().starts_with("GPU Core")) {
 							//? Gpu clock
 							if (linevec.at(1) == "Clock") {
 								gpus[gpu_name].clock_mhz = linevec.at(2) + " Mhz";
@@ -375,10 +377,13 @@ namespace Cpu {
 							//? Gpu load
 							else if (linevec.at(1) == "Load") {
 								gpus[gpu_name].usage = std::stoi(linevec.at(2));
-								if (linevec.front().starts_with("D3D")) {
-									gpus[gpu_name].cpu_gpu = true;
-								}
+								hasGPUload = true;
+								gpus[gpu_name].cpu_gpu = false;
 							}
+						}
+						else if (not hasGPUload and linevec.front().starts_with("D3D 3D") and linevec.at(1) == "Load") {
+							gpus[gpu_name].usage = std::stoi(linevec.at(2));
+							gpus[gpu_name].cpu_gpu = true;
 						}
 						//? Gpu mem used
 						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front() == "D3D Shared Memory Used") {
@@ -435,7 +440,8 @@ namespace Cpu {
 
 			if (not gpus.empty()) {
 				for (auto& [ignore, g] : gpus) {
-					if (g.cpu_gpu) {
+					if (g.cpu_gpu or g.mem_total < 1) {
+						g.cpu_gpu = true;
 						if (g.mem_total < 1) g.mem_total = ohmr_shared_mem;
 						if (g.temp == 0 and not cpu_temps.empty()) g.temp = cpu_temps.front();
 					}
@@ -1336,6 +1342,7 @@ namespace Mem {
 	int disk_ios = 0;
 	vector<string> last_found;
 	int64_t totalMem = 0;
+	bool cpu_gpu = false;
 
 	mem_info current_mem {};
 
@@ -1372,6 +1379,7 @@ namespace Mem {
 			mem.stats.at("gpu_total") = gpu.mem_total;
 			mem.stats.at("gpu_used") = gpu.mem_used;
 			mem.stats.at("gpu_free") = mem.stats.at("gpu_total") - mem.stats.at("gpu_used");
+			cpu_gpu = gpu.cpu_gpu;
 			for (const auto name : { "gpu_used", "gpu_free" }) {
 				mem.percent.at(name).push_back(round((double)mem.stats.at(name) * 100 / mem.stats.at("gpu_total")));
 				while (cmp_greater(mem.percent.at(name).size(), width * 2)) mem.percent.at(name).pop_front();

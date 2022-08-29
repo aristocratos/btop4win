@@ -137,6 +137,7 @@ namespace Mem {
 	extern bool has_swap, shown, redraw;
 	extern int disk_ios;
 	extern int64_t totalMem;
+	extern bool cpu_gpu;
 
 	struct disk_info {
 		string name;

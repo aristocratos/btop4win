@@ -869,8 +869,8 @@ namespace Mem {
 					if (graph_height > 0) out += Mv::to(y + 1 + cy, x + 1 + cx) + divider;
 					cy += 1;
 				}
-				out += Mv::to(y + 1 + cy, x + 1 + cx) + Theme::c("title") + Fx::b + "GPU:"
-					+ rjust(floating_humanizer(mem.stats.at("gpu_total")), mem_width - 7) + Theme::c("main_fg") + Fx::ub;
+				out += Mv::to(y + 1 + cy, x + 1 + cx) + Theme::c("title") + Fx::b + "GPU" + (cpu_gpu ? " Shared" : "") + ":"
+					+ rjust(floating_humanizer(mem.stats.at("gpu_total")), mem_width - 7 - (cpu_gpu ? 7 : 0)) + Theme::c("main_fg") + Fx::ub;
 				cy += 1;
 				title = "Used";
 			}
