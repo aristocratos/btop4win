@@ -59,8 +59,8 @@ namespace Config {
 		{"vim_keys",			"#* Set to True to enable \"h,j,k,l,g,G\" keys for directional control in lists.\n"
 								"#* Conflicting keys for h:\"help\" and k:\"kill\" is accessible while holding shift."},
 
-		{"enable_ohmr",			"#* Enables monitoring of CPU temps, accurate CPU clock and GPU via Open Hardware Monitor Report.\n"
-								"#* Needs the btop modified fork (https://github.com/aristocratos/openhardwaremonitor) installed in OHMR folder where btop is installed."},
+		{"enable_ohmr",			"#* Enables monitoring of CPU temps, accurate CPU clock and GPU via Libre Hardware Monitor.\n"
+								"#* Needs the my DLL's from my modified fork (https://github.com/aristocratos/librehardwaremonitor) installed in same folder as btop are installed."},
 
 		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Needs Open Hardware Monitor Report enabled."},
 

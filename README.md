@@ -28,6 +28,28 @@
 
 ## News
 
+##### 29 August 2022
+
+Release v1.0.1
+
+Changed from using OpenHardwareMonitor to LibreHardwareMonitor and using an intermediary DLL to export functions directly into btop4win.
+
+Made some fixes for detecting GPU memory on integrated GPU's and overall detection for Ryzen Mobile chips.
+
+The 2 available packages are now:
+
+* btop4win:
+
+    Has no support for GPU monitoring, CPU temperature monitoring and does not have accurate CPU clock monitoring.
+    
+    Does not require admin rights to run. (But it's still higly recommended to run as admin, otherwise some process information will be missing.)
+
+* btop4win-LHM
+
+    Has full GPU monitoring, etc. using Libre Hardware Monitor Report, DLL's included in the package, ([source](https://github.com/aristocratos/librehardwaremonitor)).
+
+    Requires admin rights to run.
+
 ##### 28 August 2022
 
 Release of btop4win v1.0.0
