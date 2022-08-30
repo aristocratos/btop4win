@@ -393,7 +393,7 @@ namespace Cpu {
 					}
 					else {
 						//? Cpu clock - using highest found value because an average of all cores doesn't do well on systems with efficiency cores
-						if (linevec.front().starts_with("CPU Core") and linevec.at(1) == "Clock") {
+						if ((linevec.front().starts_with("CPU Core") or linevec.front().starts_with("Core #")) and linevec.at(1) == "Clock") {
 							int clock = std::stoi(linevec.at(2));
 							if (clock > cpu_clock) cpu_clock = clock;
 						}
