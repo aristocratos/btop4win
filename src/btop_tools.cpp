@@ -565,16 +565,13 @@ namespace Tools {
 	}
 
 	string hostname() {
-		//char host[256];
-		//gethostname(host, 256);
-		//return string(host);
-		return "unknown";
+		auto host = getenv("COMPUTERNAME");
+		return (host != NULL ? host : "unknown");
 	}
 
 	string username() {
-		auto user = getenv("LOGNAME");
-		if (user == NULL or strlen(user) == 0) user = getenv("USER");
-		return (user != NULL ? user : "");
+		auto user = getenv("USERNAME");
+		return (user != NULL ? user : "unknown");
 	}
 
 	bool ExecCMD(const string& cmd, string& ret) {
