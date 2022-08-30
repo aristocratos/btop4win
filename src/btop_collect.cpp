@@ -136,7 +136,7 @@ namespace Shared {
 		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoInitializeEx() failed with code: " + to_string(hr));
 		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> CoInitializeSecurity() failed with code: " + to_string(hr));
+			Logger::warning("Shared::WMI_init() -> CoInitializeSecurity() failed with code: " + to_string(hr));
 		IWbemLocator* WbemLocator;
 		if (auto hr = CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID*)&WbemLocator); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoCreateInstance() failed with code: " + to_string(hr));
@@ -144,7 +144,7 @@ namespace Shared {
 			throw std::runtime_error("Shared::WMI_init() -> ConnectServer() failed with code: " + to_string(hr));
 		WbemLocator->Release();
 		if (auto hr = CoSetProxyBlanket(WbemServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHN_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE); FAILED(hr))
-			throw std::runtime_error("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
+			Logger::warning("Shared::WMI_init() -> CoSetProxyBlanket() failed with code: " + to_string(hr));
 	}
 
 	class WbemEnumerator {
@@ -201,9 +201,6 @@ namespace Cpu {
 	inline void SMI_trigger() { smi_work.release(); }
 	inline bool OHMR_wait() { return OHMR_work.try_acquire_for(std::chrono::milliseconds(100)); }
 	inline void OHMR_trigger() { OHMR_work.release(); }
-
-	//* Populate found_sensors map
-	bool get_sensors();
 
 	string get_cpuName();
 
@@ -309,7 +306,7 @@ namespace Cpu {
 
 	double ohmr_shared_mem = 0;
 
-	//* Collects Cpu, Motherboard and Gpu information from Libre Hardware Monitor, forked - (https://github.com/aristocratos/librehardwaremonitor)
+	//* Collects Cpu, Motherboard and Gpu information from Libre Hardware Monitor using LHM-CPPdll (https://github.com/aristocratos/LHM-CppExport)
 	void OHMR_collect() {
 	#ifdef LHM_Enabled
 		static bool ohmr_init = true;

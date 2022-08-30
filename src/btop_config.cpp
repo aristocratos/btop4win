@@ -60,9 +60,9 @@ namespace Config {
 								"#* Conflicting keys for h:\"help\" and k:\"kill\" is accessible while holding shift."},
 
 		{"enable_ohmr",			"#* Enables monitoring of CPU temps, accurate CPU clock and GPU via Libre Hardware Monitor.\n"
-								"#* Needs the my DLL's from my modified fork (https://github.com/aristocratos/librehardwaremonitor) installed in same folder as btop are installed."},
+								"#* Needs the my DLL's from (https://github.com/aristocratos/LHM-CppExport) installed in same folder as btop4win.exe."},
 
-		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Needs Open Hardware Monitor Report enabled."},
+		{"show_gpu",			"#* Also show gpu stats in cpu and mem box. Needs Libre Hardware Monitor Report enabled."},
 
 		{"selected_gpu",		"#* Which GPU to display if multiple is detected."},
 
