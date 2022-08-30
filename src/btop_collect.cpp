@@ -1733,6 +1733,8 @@ namespace Net {
 		if (net_auto) {
 			bool sync = false;
 			for (const auto& dir: {"download", "upload"}) {
+				if (net_sync and net[selected_iface].stat[dir].speed < net[selected_iface].stat[(string(dir) == "upload" ? "download" : "upload")].speed)
+					continue;
 				for (const auto& sel : {0, 1}) {
 					if (rescale or max_count[dir][sel] >= 5) {
 						const uint64_t avg_speed = (net[selected_iface].bandwidth[dir].size() > 5
