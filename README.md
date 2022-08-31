@@ -91,7 +91,7 @@ Nothing here...
 
 ## Description
 
-Resource monitor that shows usage and stats for processor, memory, disks, network and processes.
+Resource monitor that shows usage and stats for processor, memory, disks, network, processes and services.
 
 Windows version of [btop++](https://github.com/aristocratos/btop) which is the C++ version and continuation of [bashtop](https://github.com/aristocratos/bashtop) and [bpytop](https://github.com/aristocratos/bpytop).
 
@@ -112,11 +112,13 @@ A recommended terminal if you're not running Windows 11 (Where it's included by 
 * Easy to use, with a game inspired menu system.
 * Full mouse support, all buttons with a highlighted key is clickable and mouse scroll works in process list and menu boxes.
 * Fast and responsive UI with UP, DOWN keys process selection.
-* Function for showing detailed stats for selected process.
-* Ability to filter processes.
+* Function for showing detailed stats for selected process/service.
+* Ability to filter processes/services.
 * Easy switching between sorting options.
 * Tree view of processes.
-* Send any signal to selected process.
+* Terminate processes.
+* Start/stop/pause/continue services
+* Set start-type for services
 * UI menu for changing all config file options.
 * Auto scaling graph for network usage.
 * Shows IO activity and speeds for disks
@@ -172,9 +174,13 @@ Also needs a UTF8 locale and a font that covers:
 
 ![Screenshot 1](Img/normal.png)
 
+#### Main UI showing details for a selected service, font [Input Mono Compressed](https://input.djr.com), theme OneDark
+
+![Screenshot 2](Img/services.png)
+
 #### Main UI with TTY graph symbols using CMD Raster fonts
 
-![Screenshot 2](Img/tty.png)
+![Screenshot 3](Img/tty.png)
 
 #### Options-menu
 
