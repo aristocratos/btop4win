@@ -455,11 +455,19 @@ namespace Runner {
 	//* Runs collect and draw in a secondary thread, unlocks and locks config to update cached values
 	void run(const string& box, const bool no_update, const bool force_redraw) {
 		atomic_wait_for(active, true, 5000);
+		static int stall_count = 0;
 		if (active) {
-			Logger::error("Stall in Runner thread, quitting!");
-			active = false;	
-			clean_quit(1);
+			if (++stall_count == 12) {
+				Logger::error("Stall in Runner thread for more than 1 minute, quitting!");
+				active = false;
+				clean_quit(1);
+			}
+			else {
+				Logger::warning("Stall in Runner thread for more than 5 seconds, ignoring information collect for one cycle...");
+				return;
+			}
 		}
+		stall_count = 0;
 		if (stopping or Global::resized) return;
 
 		if (box == "overlay") {
