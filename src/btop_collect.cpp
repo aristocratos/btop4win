@@ -135,7 +135,7 @@ namespace Shared {
 	void WMI_init() {
 		if (auto hr = CoInitializeEx(0, COINIT_MULTITHREADED); FAILED(hr))
 			throw std::runtime_error("Shared::WMI_init() -> CoInitializeEx() failed with code: " + to_string(hr));
-		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr))
+		if (auto hr = CoInitializeSecurity(NULL, -1, NULL, NULL, RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE, NULL); FAILED(hr) and hr != RPC_E_TOO_LATE)
 			Logger::warning("Shared::WMI_init() -> CoInitializeSecurity() failed with code: " + to_string(hr));
 		IWbemLocator* WbemLocator;
 		if (auto hr = CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_IWbemLocator, (LPVOID*)&WbemLocator); FAILED(hr))
