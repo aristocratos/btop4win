@@ -220,6 +220,20 @@ void _exit_handler() {
 	clean_quit(-1);
 }
 
+BOOL WINAPI CtrlHandler(DWORD fdwCtrlType) {
+	switch (fdwCtrlType) {
+	case CTRL_C_EVENT:
+	case CTRL_BREAK_EVENT:
+	case CTRL_LOGOFF_EVENT:
+	case CTRL_SHUTDOWN_EVENT:
+	case CTRL_CLOSE_EVENT:
+		clean_quit(0);
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
 //* Manages secondary thread for collection and drawing of boxes
 namespace Runner {
 	atomic<bool> active (false);
@@ -518,6 +532,8 @@ int main(int argc, char **argv) {
 
 	//? Call argument parser if launched with arguments
 	if (argc > 1) argumentParser(argc, argv);
+
+	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
 	SetConsoleTitleA("btop4win++");
 
