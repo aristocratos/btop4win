@@ -198,6 +198,21 @@ Also needs a UTF8 locale and a font that covers:
 
 3. Extract the btop4win folder anywhere and run btop4win.exe.
 
+### Package managers
+
+#### Scoop
+
+* [`btop4win`](https://scoop.sh/#/apps?q=btop4win&s=0&d=1&o=true)
+  ```powershell
+  scoop add bucket extras # ensure the bucket is added first
+  scoop install btop4win
+  ```
+* [`btop4win-lhm`](https://scoop.sh/#/apps?q=btop4win-lhm&s=0&d=1&o=true)
+  ```powershell
+  scoop add bucket versions # ensure the bucket is added first
+  scoop install btop4win-lhm
+  ```
+
 ## Compilation
 
 1. (Optional) For compiling with LibreHardwareMonitor support:
