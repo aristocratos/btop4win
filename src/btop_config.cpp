@@ -160,8 +160,8 @@ namespace Config {
 
 		{"io_graph_combined", 	"#* Set to True to show combined read/write io graphs in io mode."},
 
-		{"io_graph_speeds", 	"#* Set the top speed for the io graphs in MiB/s (100 by default), use format \"mountpoint:speed\" separate disks with whitespace \" \".\n"
-								"#* Example: \"/mnt/media:100 /:20 /boot:1\"."},
+		{"io_graph_speeds", 	"#* Set the top speed for the io graphs in MiB/s (100 by default), use format \"device:\\speed\" separate disks with whitespace \" \".\n"
+								"#* Example: \"C:\\100 D:\\20 G:\\1\"."},
 
 		{"net_download", 		"#* Set fixed values for network graphs in Mebibits. Is only used if net_auto is also set to False."},
 
@@ -407,7 +407,7 @@ namespace Config {
 			const auto maps = ssplit(value);
 			bool all_good = true;
 			for (const auto& map : maps) {
-				const auto map_split = ssplit(map, ':');
+				const auto map_split = ssplit(map, '\\');
 				if (map_split.size() != 2)
 					all_good = false;
 				else if (map_split.at(0).empty() or not isint(map_split.at(1)))
