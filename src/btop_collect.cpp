@@ -187,18 +187,10 @@ namespace Cpu {
 	bool got_sensors = false, cpu_temp_only = false;
 	string gpu_name;
 	bool has_gpu = false;
-	atomic<uint64_t> smiTimer = 0;
 	atomic<uint64_t> OHMRTimer = 0;
-	string OHMR_path;
-	string OHMR_out_path;
 	bool has_OHMR = true;
-	string smi_path;
-	std::mutex SMImutex;
-	std::binary_semaphore smi_work(0);
 	std::mutex OHMRmutex;
 	std::binary_semaphore OHMR_work(0);
-	inline bool SMI_wait() { return smi_work.try_acquire_for(std::chrono::milliseconds(100)); }
-	inline void SMI_trigger() { smi_work.release(); }
 	inline bool OHMR_wait() { return OHMR_work.try_acquire_for(std::chrono::milliseconds(100)); }
 	inline void OHMR_trigger() { OHMR_work.release(); }
 
@@ -217,7 +209,6 @@ namespace Cpu {
 
 	unordered_flat_map<string, Sensor> found_sensors;
 	string cpu_sensor;
-	vector<string> core_sensors;
 	unordered_flat_map<int, int> core_mapping;
 
 	//! Code for load average based on psutils calculation
@@ -271,38 +262,38 @@ namespace Cpu {
 		}
 	}
 
-	bool NvSMI_init() {
-		//return false;
-		array<char, 1024> sysdir;
-		
-		if (not GetSystemDirectoryA(sysdir.data(), 1024))
-			return false;
+	//bool NvSMI_init() {
+	//	//return false;
+	//	array<char, 1024> sysdir;
+	//	
+	//	if (not GetSystemDirectoryA(sysdir.data(), 1024))
+	//		return false;
 
-		smi_path = sysdir.data();
-		if (smi_path.empty())
-			return false;
+	//	smi_path = sysdir.data();
+	//	if (smi_path.empty())
+	//		return false;
 
-		smi_path += "\\nvidia-smi.exe";
-		if (not fs::exists(smi_path)) {
-			Logger::debug("Nvidia SMI not found. Disabling GPU monitoring.");
-			return false;
-		}
+	//	smi_path += "\\nvidia-smi.exe";
+	//	if (not fs::exists(smi_path)) {
+	//		Logger::debug("Nvidia SMI not found. Disabling GPU monitoring.");
+	//		return false;
+	//	}
 
-		string name;
-		if (not ExecCMD(smi_path + " --query-gpu=gpu_name --format=csv,noheader", name)) {
-			Logger::error("Error running Nvidia SMI. Disabling GPU monitoring. Output from nvidia-smi:");
-			Logger::error(name);
-			return false;
-		}
+	//	string name;
+	//	if (not ExecCMD(smi_path + " --query-gpu=gpu_name --format=csv,noheader", name)) {
+	//		Logger::error("Error running Nvidia SMI. Disabling GPU monitoring. Output from nvidia-smi:");
+	//		Logger::error(name);
+	//		return false;
+	//	}
 
-		name = rtrim2(name);
+	//	name = rtrim2(name);
 
-		name = s_replace(name, "NVIDIA ", "");
-		name = s_replace(name, "GeForce ", "");
-		gpu_name = name;
+	//	name = s_replace(name, "NVIDIA ", "");
+	//	name = s_replace(name, "GeForce ", "");
+	//	gpu_name = name;
 
-		return true;
-	}
+	//	return true;
+	//}
 
 	double ohmr_shared_mem = 0;
 
@@ -399,7 +390,7 @@ namespace Cpu {
 						}
 						//? Cpu core and package temp
 						else if (linevec.at(1) == "Temperature") {
-							if (linevec.front().starts_with("CPU Core")) {
+							if (linevec.front().starts_with("CPU Core #") and not linevec.front().contains("TjMax")) {
 								cpu_temps.push_back(std::stoi(linevec.at(2)));
 							}
 							else if (not hasPackage and (linevec.front().starts_with("CPU Package") or linevec.front() == "Core (Tctl/Tdie)")) {
@@ -493,6 +484,9 @@ namespace Cpu {
 			return;
 		}
 
+		OHMR_trigger();
+		OHMR_collect();
+
 		//? Get max shared memory if using CPU-GPU
 		bool bigmem = false;
 		auto dmem_pos = output.find("GpuSharedLimit");
@@ -533,13 +527,14 @@ namespace Cpu {
 			Logger::debug("Error getting CPU TjMax value from Open Hardware Monitor Report: "s + e.what());
 		}
 
+		int found_sensors = OHMRrawStats.CPU.size() - 1;
+
 		//? Get Cpu core mapping
 		unordered_flat_map<int, int> core_map;
 		try {
 			int cpuid = 0, coreid = 0, n = 0;
 			auto lines = ssplit(output.substr(output.find("CPUID")), '\n');
-			int found_sensors = OHMRrawStats.CPU.size() - 1;
-
+			
 			for (auto& instr : lines) {
 				if (instr.starts_with(" CPU Thread:")) {
 					cpuid = std::stoi(instr.substr(instr.find(':') + 1));
@@ -566,14 +561,14 @@ namespace Cpu {
 		if (cmp_less(core_map.size(), Shared::coreCount)) {
 			if (Shared::coreCount % 2 == 0 and (long)core_map.size() == Shared::coreCount / 2) {
 				for (int i = 0, n = 0; i < Shared::coreCount / 2; i++) {
-					if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
+					if (n > found_sensors) n = 0;
 					core_map[Shared::coreCount / 2 + i] = n++;
 				}
 			}
 			else {
 				core_map.clear();
 				for (int i = 0, n = 0; i < Shared::coreCount; i++) {
-					if (std::cmp_greater_equal(n, core_sensors.size())) n = 0;
+					if (n >= found_sensors) n = 0;
 					core_map[i] = n++;
 				}
 			}
@@ -581,8 +576,7 @@ namespace Cpu {
 
 		Cpu::core_mapping = core_map;
 
-		OHMR_trigger();
-		OHMR_collect();
+		
 
 #else
 		has_OHMR = false;
@@ -949,8 +943,6 @@ namespace Shared {
 		//? Shared global variables init
 		procPath = "";
 		passwd_path = "";
-		Cpu::OHMR_path = Config::conf_dir.string() + "OHMR\\OpenHardwareMonitorReport.exe";
-		Cpu::OHMR_out_path = Config::conf_dir.string() + "OHMR\\out";
 
 		//? Set SE DEBUG mode
 		init_status("Setting SE Debug Mode");
