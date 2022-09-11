@@ -1,3 +1,10 @@
+## v1.0.3
+
+* Fixed: Config not saving when quittting by closing with window controls
+* Changed: Ignore warning for WMI CoInitializeSecurity() when it's already have been called
+* Fixed: Core mapping for cpu temps
+* Fixed: `io_graph_speeds` config setting
+
 ## v1.0.2
 
 * Fixed: Tools::hostname() and Tools::username()
