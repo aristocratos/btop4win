@@ -202,15 +202,13 @@ Also needs a UTF8 locale and a font that covers:
 
 #### Scoop
 
-* [`btop4win`](https://scoop.sh/#/apps?q=btop4win&s=0&d=1&o=true)
+* [`btop`](https://scoop.sh/#/apps?q=btop&s=0&d=1&o=true)
   ```powershell
-  scoop add bucket extras # ensure the bucket is added first
-  scoop install btop4win
+  scoop install btop
   ```
-* [`btop4win-lhm`](https://scoop.sh/#/apps?q=btop4win-lhm&s=0&d=1&o=true)
+* [`btop-lhm`](https://scoop.sh/#/apps?q=btop-lhm&s=0&d=1&o=true)
   ```powershell
-  scoop add bucket versions # ensure the bucket is added first
-  scoop install btop4win-lhm
+  scoop install btop-lhm
   ```
 
 ## Compilation
