@@ -1365,7 +1365,16 @@ namespace Mem {
 				}
 			}
 			const auto& gpu = Cpu::OHMRrawStats.GPUS.contains(Cpu::current_gpu) ? Cpu::OHMRrawStats.GPUS.at(Cpu::current_gpu) : Cpu::OHMRrawStats.GPUS.at(Config::available_gpus.at(1));
-			mem.stats.at("gpu_total") = gpu.mem_total;
+			const uint64_t conf_gpu_total = (int64_t)Config::getI("gpu_mem_override") << 20;
+			if (conf_gpu_total > 0 and conf_gpu_total > gpu.mem_used) {
+				mem.stats.at("gpu_total") = conf_gpu_total;
+			}
+			else if (gpu.mem_total < 1) {
+				if (mem.stats.at("gpu_total") < gpu.mem_used) mem.stats.at("gpu_total") = gpu.mem_used;
+			}
+			else {
+				mem.stats.at("gpu_total") = gpu.mem_total;
+			}
 			mem.stats.at("gpu_used") = gpu.mem_used;
 			mem.stats.at("gpu_free") = mem.stats.at("gpu_total") - mem.stats.at("gpu_used");
 			cpu_gpu = gpu.cpu_gpu;

@@ -66,6 +66,8 @@ namespace Config {
 
 		{"selected_gpu",		"#* Which GPU to display if multiple is detected."},
 
+		{"gpu_mem_override",	"#* Manually set and override the GPU total memory shown when not correctly detected. Value in MiB. Example: \"gpu_mem_override = 1024\" for 1 GiB."},
+
 		{"rounded_corners",		"#* Rounded corners on boxes, is ignored if TTY mode is ON."},
 
 		{"graph_symbol", 		"#* Default symbols to use for graph creation, \"braille\", \"block\" or \"tty\".\n"
@@ -261,6 +263,7 @@ namespace Config {
 		{"proc_start", 0},
 		{"proc_selected", 0},
 		{"proc_last_selected", 0},
+		{"gpu_mem_override", 0}
 	};
 	unordered_flat_map<string, int> intsTmp;
 
