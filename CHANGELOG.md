@@ -1,3 +1,9 @@
+## v1.0.4
+
+* Fixed: Gpu total memory will now default to highest recorded usage if not detected.
+* Added: Config option to override gpu total memory.
+* Added: New theme paper, by @s6muel
+
 ## v1.0.3
 
 * Fixed: Config not saving when quittting by closing with window controls
