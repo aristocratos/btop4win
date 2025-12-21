@@ -122,6 +122,8 @@ namespace Config {
 
 		{"cpu_bottom",			"#* Show cpu box at bottom of screen instead of top."},
 
+		{"cpu_wide",			"#* Show full-width cpu box."},
+
 		{"show_uptime", 		"#* Shows the system uptime in the CPU box."},
 
 		{"check_temp", 			"#* Show cpu temperature."},
@@ -225,6 +227,7 @@ namespace Config {
 		{"cpu_invert_lower", true},
 		{"cpu_single_graph", false},
 		{"cpu_bottom", false},
+		{"cpu_wide", true},
 		{"show_uptime", true},
 		{"check_temp", true},
 		{"enable_ohmr", true},

@@ -472,7 +472,7 @@ namespace Draw {
 }
 
 namespace Cpu {
-	int width_p = 100, height_p = 32;
+	int width_p = 45, height_p = 32;
 	int min_width = 60, min_height = 8;
 	int x = 1, y = 1, width = 20, height;
 	int b_columns, b_column_size;
@@ -1623,6 +1623,7 @@ namespace Draw {
 		Config::unlock();
 		auto& boxes = Config::getS("shown_boxes");
 		auto& cpu_bottom = Config::getB("cpu_bottom");
+		auto& cpu_wide = Config::getB("cpu_wide");
 		auto& mem_below_net = Config::getB("mem_below_net");
 		auto& proc_left = Config::getB("proc_left");
 
@@ -1655,7 +1656,7 @@ namespace Draw {
 		if (Cpu::shown) {
 			using namespace Cpu;
 			const bool show_gpu = (Config::getB("show_gpu") and has_gpu);
-			width = round((double)Term::width * width_p / 100);
+			width = round((double)Term::width * (Proc::shown and not cpu_wide ? width_p : 100) / 100);
 			height = max(8, (int)ceil((double)Term::height * (trim(boxes) == "cpu" ? 100 : height_p) / 100));
 			x = 1;
 			y = cpu_bottom ? Term::height - height + 1 : 1;
@@ -1775,9 +1776,9 @@ namespace Draw {
 		if (Proc::shown) {
 			using namespace Proc;
 			width = Term::width - (Mem::shown ? Mem::width : (Net::shown ? Net::width : 0));
-			height = Term::height - Cpu::height;
+			height = Term::height - (cpu_wide ? Cpu::height : 0);
 			x = proc_left ? 1 : Term::width - width + 1;
-			y = (cpu_bottom and Cpu::shown) ? 1 : Cpu::height + 1;
+			y = (cpu_bottom and Cpu::shown or not cpu_wide) ? 1 : Cpu::height + 1;
 			select_max = height - 3;
 			box = createBox(x, y, width, height, Theme::c("proc_box"), true, "proc", "", 4);
 		}

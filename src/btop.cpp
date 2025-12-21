@@ -55,7 +55,7 @@ namespace Global {
 		{"#801414", "██████╔╝   ██║   ╚██████╔╝██║        ╚═╝    ╚═╝"},
 		{"#000000", "╚═════╝    ╚═╝    ╚═════╝ ╚═╝"},
 	};
-	const string Version = "1.0.4";
+	const string Version = "1.0.5";
 
 	int coreCount;
 	string overlay;
@@ -194,8 +194,10 @@ void term_resize(bool force) {
 
 //* Exit handler; restores terminal and saves config changes
 void clean_quit(int sig) {
-	if (Global::quitting) return;
-	Global::quitting = true;
+   bool expected = false;
+   if (!Global::quitting.compare_exchange_strong(expected, true)) {
+      return;
+   }
 	Runner::stop();
 
 	Config::write();

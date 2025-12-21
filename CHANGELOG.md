@@ -1,3 +1,9 @@
+## v1.0.5
+* Updated: LibreHardwareMonitor to latest version (0.9.4)
+* Added: Better detection of GPU total memory
+* Added: Add option for narrow and wide cpu views, @samiksome92
+* Fixed: Addressed potential race condition in exit handler, by @bot984397
+
 ## v1.0.4
 
 * Fixed: Gpu total memory will now default to highest recorded usage if not detected.

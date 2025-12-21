@@ -320,6 +320,7 @@ namespace Cpu {
 			bool isGPU = false;
 			bool hasPackage = false;
 			bool hasGPUload = false;
+			bool hasMemory = false;
 			int mb_cpu = 0;
 			int mb_system = 0;
 			OHMRraw stats;
@@ -347,6 +348,7 @@ namespace Cpu {
 							if (gpu_name.empty()) gpu_name = cur_id;
 							isGPU = true;
 							hasGPUload = false;
+							hasMemory = false;
 							gpu_order.push_back(gpu_name);
 						}
 						else
@@ -370,15 +372,20 @@ namespace Cpu {
 							}
 						}
 						else if (not hasGPUload and linevec.front().starts_with("D3D 3D") and linevec.at(1) == "Load") {
-							gpus[gpu_name].usage = std::stoi(linevec.at(2));
-							gpus[gpu_name].cpu_gpu = true;
+							gpus[gpu_name].usage = std::stoi(linevec.at(2));							
 						}
 						//? Gpu mem used
-						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front() == "D3D Shared Memory Used") {
+						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front().starts_with("D3D Dedicated Memory Used")) {
 							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;
+							hasMemory = true;
+							gpus[gpu_name].cpu_gpu = false;
+						}
+						else if (not hasMemory and linevec.front() == "D3D Shared Memory Used") {
+							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;							
+							gpus[gpu_name].cpu_gpu = true;
 						}
 						//? Gpu mem total
-						else if (linevec.front().starts_with("GPU Memory Total")) {
+						else if (linevec.front().starts_with("GPU Memory Total") or linevec.front().starts_with("D3D Dedicated Memory Total")) {
 							gpus[gpu_name].mem_total = std::stoll(linevec.at(2)) << 20ll;
 						}
 					}
@@ -429,7 +436,7 @@ namespace Cpu {
 			if (not gpus.empty()) {
 				for (auto& [ignore, g] : gpus) {
 					if (g.cpu_gpu or g.mem_total < 1) {
-						g.cpu_gpu = true;
+						//g.cpu_gpu = true;
 						if (g.mem_total < 1) g.mem_total = ohmr_shared_mem;
 						if (g.temp == 0 and not cpu_temps.empty()) g.temp = cpu_temps.front();
 					}
@@ -489,12 +496,19 @@ namespace Cpu {
 
 		//? Get max shared memory if using CPU-GPU
 		bool bigmem = false;
+		bool amdmem = false;
 		auto dmem_pos = output.find("GpuSharedLimit");
+		if (dmem_pos == string::npos) {			
+			dmem_pos = output.find("D3D Dedicated Memory Used");
+		}
 		if (dmem_pos == string::npos) {
 			bigmem = true;
 			dmem_pos = output.find("SharedSystemMemory");
 		}
-		if (dmem_pos != string::npos) {
+		else {
+			amdmem = true;
+		}
+		if (dmem_pos != string::npos and not amdmem) {
 			try {
 				auto space_pos = output.find(' ', dmem_pos);
 				ohmr_shared_mem = std::stoll(output.substr(space_pos, output.find('\n', dmem_pos) - space_pos));
