@@ -297,6 +297,35 @@ namespace Cpu {
 
 	double ohmr_shared_mem = 0;
 
+	//* Safe string to int conversion - returns default_val if string is empty or invalid
+	int safe_stoi(const string& str, int default_val = 0) {
+		if (str.empty()) return default_val;
+		try {
+			// Handle potential floating point values by truncating
+			size_t pos = str.find('.');
+			if (pos != string::npos) {
+				return std::stoi(str.substr(0, pos));
+			}
+			return std::stoi(str);
+		} catch (...) {
+			return default_val;
+		}
+	}
+
+	//* Safe string to long long conversion - returns default_val if string is empty or invalid
+	long long safe_stoll(const string& str, long long default_val = 0) {
+		if (str.empty()) return default_val;
+		try {
+			size_t pos = str.find('.');
+			if (pos != string::npos) {
+				return std::stoll(str.substr(0, pos));
+			}
+			return std::stoll(str);
+		} catch (...) {
+			return default_val;
+		}
+	}
+
 	//* Collects Cpu, Motherboard and Gpu information from Libre Hardware Monitor using LHM-CPPdll (https://github.com/aristocratos/LHM-CppExport)
 	void OHMR_collect() {
 	#ifdef LHM_Enabled
@@ -362,53 +391,53 @@ namespace Cpu {
 							}
 							//? Gpu temp
 							else if (linevec.at(1) == "Temperature") {
-								gpus[gpu_name].temp = std::stoi(linevec.at(2));
+								gpus[gpu_name].temp = safe_stoi(linevec.at(2));
 							}
 							//? Gpu load
 							else if (linevec.at(1) == "Load") {
-								gpus[gpu_name].usage = std::stoi(linevec.at(2));
+								gpus[gpu_name].usage = safe_stoi(linevec.at(2));
 								hasGPUload = true;
 								gpus[gpu_name].cpu_gpu = false;
 							}
 						}
 						else if (not hasGPUload and linevec.front().starts_with("D3D 3D") and linevec.at(1) == "Load") {
-							gpus[gpu_name].usage = std::stoi(linevec.at(2));							
+							gpus[gpu_name].usage = safe_stoi(linevec.at(2));
 						}
 						//? Gpu mem used
 						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front().starts_with("D3D Dedicated Memory Used")) {
-							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;
+							gpus[gpu_name].mem_used = safe_stoll(linevec.at(2)) << 20ll;
 							hasMemory = true;
 							gpus[gpu_name].cpu_gpu = false;
 						}
 						else if (not hasMemory and linevec.front() == "D3D Shared Memory Used") {
-							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;							
+							gpus[gpu_name].mem_used = safe_stoll(linevec.at(2)) << 20ll;
 							gpus[gpu_name].cpu_gpu = true;
 						}
 						//? Gpu mem total
 						else if (linevec.front().starts_with("GPU Memory Total") or linevec.front().starts_with("D3D Dedicated Memory Total")) {
-							gpus[gpu_name].mem_total = std::stoll(linevec.at(2)) << 20ll;
+							gpus[gpu_name].mem_total = safe_stoll(linevec.at(2)) << 20ll;
 						}
 					}
 					else {
 						//? Cpu clock - using highest found value because an average of all cores doesn't do well on systems with efficiency cores
 						if ((linevec.front().starts_with("CPU Core") or linevec.front().starts_with("Core #")) and linevec.at(1) == "Clock") {
-							int clock = std::stoi(linevec.at(2));
+							int clock = safe_stoi(linevec.at(2));
 							if (clock > cpu_clock) cpu_clock = clock;
 						}
 						//? Cpu core and package temp
 						else if (linevec.at(1) == "Temperature") {
 							if (linevec.front().starts_with("CPU Core #") and not linevec.front().contains("TjMax")) {
-								cpu_temps.push_back(std::stoi(linevec.at(2)));
+								cpu_temps.push_back(safe_stoi(linevec.at(2)));
 							}
 							else if (not hasPackage and (linevec.front().starts_with("CPU Package") or linevec.front() == "Core (Tctl/Tdie)")) {
-								cpu_temps.insert(cpu_temps.begin(), std::stoi(linevec.at(2)));
+								cpu_temps.insert(cpu_temps.begin(), safe_stoi(linevec.at(2)));
 								hasPackage = true;
 							}
 							else if (not hasPackage and linevec.front() == "CPU") {
-								mb_cpu = std::stoi(linevec.at(2));
+								mb_cpu = safe_stoi(linevec.at(2));
 							}
 							else if (not hasPackage and linevec.front() == "System") {
-								mb_system = std::stoi(linevec.at(2));
+								mb_system = safe_stoi(linevec.at(2));
 							}
 						}
 					}
