@@ -297,6 +297,39 @@ namespace Cpu {
 
 	double ohmr_shared_mem = 0;
 
+	static bool parse_sensor_value(const string& value, long long& out) {
+		try {
+			size_t pos = 0;
+			const auto parsed = std::stoll(value, &pos);
+			if (pos == value.size()) {
+				out = parsed;
+				return true;
+			}
+		}
+		catch (...) {}
+		try {
+			size_t pos = 0;
+			const auto parsed = std::stod(value, &pos);
+			if (pos == value.size() and std::isfinite(parsed)) {
+				out = static_cast<long long>(std::llround(parsed));
+				return true;
+			}
+		}
+		catch (...) {}
+		return false;
+	}
+
+	static bool parse_sensor_value(const string& value, int& out) {
+		long long parsed;
+		if (parse_sensor_value(value, parsed)
+			and parsed >= std::numeric_limits<int>::min()
+			and parsed <= std::numeric_limits<int>::max()) {
+			out = static_cast<int>(parsed);
+			return true;
+		}
+		return false;
+	}
+
 	//* Collects Cpu, Motherboard and Gpu information from Libre Hardware Monitor using LHM-CPPdll (https://github.com/aristocratos/LHM-CppExport)
 	void OHMR_collect() {
 	#ifdef LHM_Enabled
@@ -362,64 +395,74 @@ namespace Cpu {
 							}
 							//? Gpu temp
 							else if (linevec.at(1) == "Temperature") {
-								gpus[gpu_name].temp = std::stoi(linevec.at(2));
+								if (int parsed; parse_sensor_value(linevec.at(2), parsed))
+									gpus[gpu_name].temp = parsed;
 							}
 							//? Gpu load
 							else if (linevec.at(1) == "Load") {
-								gpus[gpu_name].usage = std::stoi(linevec.at(2));
-								hasGPUload = true;
-								gpus[gpu_name].cpu_gpu = false;
+								if (int parsed; parse_sensor_value(linevec.at(2), parsed)) {
+									gpus[gpu_name].usage = parsed;
+									hasGPUload = true;
+									gpus[gpu_name].cpu_gpu = false;
+								}
 							}
 						}
 						else if (not hasGPUload and linevec.front().starts_with("D3D 3D") and linevec.at(1) == "Load") {
-							gpus[gpu_name].usage = std::stoi(linevec.at(2));							
+							if (int parsed; parse_sensor_value(linevec.at(2), parsed))
+								gpus[gpu_name].usage = parsed;
 						}
 						//? Gpu mem used
 						else if (linevec.front().starts_with("GPU Memory Used") or linevec.front().starts_with("D3D Dedicated Memory Used")) {
-							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;
-							hasMemory = true;
-							gpus[gpu_name].cpu_gpu = false;
+							if (long long parsed; parse_sensor_value(linevec.at(2), parsed)) {
+								gpus[gpu_name].mem_used = parsed << 20ll;
+								hasMemory = true;
+								gpus[gpu_name].cpu_gpu = false;
+							}
 						}
 						else if (not hasMemory and linevec.front() == "D3D Shared Memory Used") {
-							gpus[gpu_name].mem_used = std::stoll(linevec.at(2)) << 20ll;							
-							gpus[gpu_name].cpu_gpu = true;
+							if (long long parsed; parse_sensor_value(linevec.at(2), parsed)) {
+								gpus[gpu_name].mem_used = parsed << 20ll;
+								gpus[gpu_name].cpu_gpu = true;
+							}
 						}
 						//? Gpu mem total
 						else if (linevec.front().starts_with("GPU Memory Total") or linevec.front().starts_with("D3D Dedicated Memory Total")) {
-							gpus[gpu_name].mem_total = std::stoll(linevec.at(2)) << 20ll;
+							if (long long parsed; parse_sensor_value(linevec.at(2), parsed))
+								gpus[gpu_name].mem_total = parsed << 20ll;
 						}
 					}
 					else {
 						//? Cpu clock - using highest found value because an average of all cores doesn't do well on systems with efficiency cores
 						if ((linevec.front().starts_with("CPU Core") or linevec.front().starts_with("Core #")) and linevec.at(1) == "Clock") {
-							int clock = std::stoi(linevec.at(2));
-							if (clock > cpu_clock) cpu_clock = clock;
+							if (int parsed; parse_sensor_value(linevec.at(2), parsed) and parsed > cpu_clock)
+								cpu_clock = parsed;
 						}
 						//? Cpu core and package temp
 						else if (linevec.at(1) == "Temperature") {
 							if (linevec.front().starts_with("CPU Core #") and not linevec.front().contains("TjMax")) {
-								cpu_temps.push_back(std::stoi(linevec.at(2)));
+								if (int parsed; parse_sensor_value(linevec.at(2), parsed))
+									cpu_temps.push_back(parsed);
 							}
 							else if (not hasPackage and (linevec.front().starts_with("CPU Package") or linevec.front() == "Core (Tctl/Tdie)")) {
-								cpu_temps.insert(cpu_temps.begin(), std::stoi(linevec.at(2)));
-								hasPackage = true;
+								if (int parsed; parse_sensor_value(linevec.at(2), parsed)) {
+									cpu_temps.insert(cpu_temps.begin(), parsed);
+									hasPackage = true;
+								}
 							}
 							else if (not hasPackage and linevec.front() == "CPU") {
-								mb_cpu = std::stoi(linevec.at(2));
+								if (int parsed; parse_sensor_value(linevec.at(2), parsed))
+									mb_cpu = parsed;
 							}
 							else if (not hasPackage and linevec.front() == "System") {
-								mb_system = std::stoi(linevec.at(2));
+								if (int parsed; parse_sensor_value(linevec.at(2), parsed))
+									mb_system = parsed;
 							}
 						}
 					}
 				}
 				catch (const std::exception& e) {
 					Logger::error("Error during Libre Hardware Monitor parsing: "s + e.what());
-					has_gpu = false;
-					got_sensors = false;
-					has_OHMR = false;
-					Global::resized = true;
-					return;
+					continue;
 				}
 			}
 
